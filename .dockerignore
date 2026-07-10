@@ -1,0 +1,14 @@
+target/
+.git/
+.env
+.env.*
+!.env.example
+logs/
+graphify-out/
+*.FDB
+*.FBK
+*.schf
+*.sql
+!src/main/resources/db/migration/*.sql
+*.dump
+*.backup
