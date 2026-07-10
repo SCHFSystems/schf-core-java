@@ -20,6 +20,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Gitleaks
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest detect --source=/repo --redact
+
       - name: Maven verify
         run: mvn verify
 
