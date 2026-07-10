@@ -10,6 +10,8 @@ import br.com.schf.category.Category;
 import br.com.schf.category.CategoryRepository;
 import br.com.schf.supplier.CategoryType;
 import br.com.schf.category.CategoryRepository;
+import br.com.schf.organization.Organization;
+import br.com.schf.organization.OrganizationRepository;
 import br.com.schf.payable.Payable;
 import br.com.schf.payable.PayableRepository;
 import br.com.schf.payable.PayableStatus;
@@ -20,6 +22,7 @@ import br.com.schf.supplier.SupplierRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,16 +55,24 @@ class PayablePaymentIntegrationTest {
     @Autowired SupplierRepository supplierRepository;
     @Autowired CategoryRepository categoryRepository;
     @Autowired FinancialAccountRepository accountRepository;
+    @Autowired OrganizationRepository organizationRepository;
     @Autowired PayableRepository payableRepository;
     @Autowired PaymentRepository paymentRepository;
     @Autowired PaymentService paymentService;
     @Autowired TenantContext tenantContext;
 
+    UUID orgId;
+
+    @BeforeEach
+    void setUp() {
+        // Create a test organization and set tenant context
+        var org = organizationRepository.save(new Organization("TEST", "Test Organization"));
+        orgId = org.getId();
+        tenantContext.setOrganizationId(orgId);
+    }
+
     @Test
     void fullPaymentTransitionsToPaid() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Acme Corp"));
         var category = categoryRepository.save(new Category(orgId, "Materials", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Cash", FinancialAccountType.CASH));
@@ -80,9 +91,6 @@ class PayablePaymentIntegrationTest {
 
     @Test
     void partialPaymentKeepsOpen() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Supplier A"));
         var category = categoryRepository.save(new Category(orgId, "Goods", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Bank", FinancialAccountType.BANK));
@@ -101,9 +109,6 @@ class PayablePaymentIntegrationTest {
 
     @Test
     void multiplePartialPaymentsComplete() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Supplier B"));
         var category = categoryRepository.save(new Category(orgId, "Equipment", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Bank Y", FinancialAccountType.BANK));
@@ -124,9 +129,6 @@ class PayablePaymentIntegrationTest {
 
     @Test
     void rejectOverPayment() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Supplier C"));
         var category = categoryRepository.save(new Category(orgId, "Services", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Card", FinancialAccountType.CREDIT_CARD));
@@ -144,9 +146,6 @@ class PayablePaymentIntegrationTest {
 
     @Test
     void cannotPayCanceledPayable() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Supplier D"));
         var category = categoryRepository.save(new Category(orgId, "Canceled", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Cash", FinancialAccountType.CASH));
@@ -166,9 +165,6 @@ class PayablePaymentIntegrationTest {
 
     @Test
     void paymentPersistsAllFields() {
-        tenantContext.setOrganizationId(UUID.randomUUID());
-        var orgId = tenantContext.getOrganizationId();
-
         var supplier = supplierRepository.save(new Supplier(orgId, "Supplier E"));
         var category = categoryRepository.save(new Category(orgId, "Test", CategoryType.EXPENSE));
         var account = accountRepository.save(new FinancialAccount(orgId, "Account", FinancialAccountType.OTHER));
