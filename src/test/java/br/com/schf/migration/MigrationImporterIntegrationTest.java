@@ -11,6 +11,7 @@ import br.com.schf.security.membership.UserRoleAssignmentRepository;
 import br.com.schf.security.permission.Permission;
 import br.com.schf.security.permission.PermissionRepository;
 import br.com.schf.security.permission.Permissions;
+import br.com.schf.security.ratelimit.RateLimitService;
 import br.com.schf.security.role.Role;
 import br.com.schf.security.role.RolePermission;
 import br.com.schf.security.role.RolePermissionRepository;
@@ -63,7 +64,6 @@ class MigrationImporterIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("schf.security.jwt.secret", () ->
             "fake_test_jwt_secret_that_is_longer_than_thirty_two_bytes_1234");
-        registry.add("schf.security.hardening.login-rate-limit", () -> 100);
     }
 
     @LocalServerPort int port;
@@ -79,11 +79,13 @@ class MigrationImporterIntegrationTest {
     @Autowired AuditLogRepository auditLogRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired RateLimitService rateLimitService;
 
     @BeforeEach
     void client() {
         restTemplate.getRestTemplate().setRequestFactory(
             new JdkClientHttpRequestFactory(HttpClient.newHttpClient()));
+        rateLimitService.reset();
     }
 
     @Test
