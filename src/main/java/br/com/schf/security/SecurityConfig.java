@@ -7,6 +7,7 @@ import br.com.schf.security.permission.Permissions;
 import br.com.schf.security.principal.JwtAuthenticationFilter;
 import br.com.schf.security.ratelimit.RateLimitFilter;
 import br.com.schf.security.tenant.TenantContextFilter;
+import br.com.schf.system.InstanceProperties;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -27,7 +28,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 @EnableMethodSecurity
 @EnableConfigurationProperties({BootstrapAdminProperties.class, JwtProperties.class,
-    SecurityHardeningProperties.class, MigrationProperties.class})
+    SecurityHardeningProperties.class, MigrationProperties.class, InstanceProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -48,8 +49,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers("/error").permitAll()
-                .requestMatchers("/api/health", "/actuator/health", "/actuator/info", "/actuator/prometheus")
-                    .permitAll()
+                .requestMatchers("/api/health", "/api/system/info", "/api/system/capabilities",
+                    "/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/setup/status").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/setup/initialize").permitAll()
                 .requestMatchers(HttpMethod.POST,
                     "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
                     "/api/auth/password/forgot", "/api/auth/password/reset").permitAll()

@@ -1,0 +1,109 @@
+name: schf-clean
+
+x-logging: &default-logging
+    driver: "json-file"
+    options:
+        max-size: "10m"
+        max-file: "3"
+
+services:
+    proxy:
+        image: caddy:2-alpine
+        restart: unless-stopped
+        ports:
+            - "${SCHF_PORT:-8084}:8080"
+        environment:
+            SCHF_PUBLIC_URL: ":${SCHF_PORT:-8084}"
+        volumes:
+            - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - schf-caddy-data:/data
+            - schf-caddy-config:/config
+        depends_on:
+            api:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+            interval: 15s
+            timeout: 5s
+            retries: 6
+            start_period: 30s
+        logging: *default-logging
+
+    api:
+        image: ghcr.io/schfsystems/schf-core-java:${SCHF_VERSION:-latest}
+        build:
+            context: ../..
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        environment:
+            SERVER_PORT: "8080"
+            SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-schf_v2}
+            SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-schf}
+            SPRING_DATASOURCE_PASSWORD: ${SCHF_DATABASE_PASSWORD}
+            SPRING_REDIS_HOST: redis
+            SPRING_REDIS_PORT: "6379"
+            SPRING_REDIS_PASSWORD: ${SCHF_REDIS_PASSWORD}
+            SCHF_INSTANCE_ID: ${SCHF_INSTANCE_ID}
+            SCHF_INSTANCE_NAME: ${SCHF_INSTANCE_NAME:-SCHF}
+            SCHF_ENVIRONMENT: ${SCHF_ENVIRONMENT:-production}
+            SCHF_JWT_SECRET: ${SCHF_JWT_SECRET}
+            SCHF_PUBLIC_URL: ${SCHF_PUBLIC_URL:-http://localhost:8084}
+            SCHF_ALLOWED_ORIGINS: ${SCHF_ALLOWED_ORIGINS:-http://localhost:8084}
+            SCHF_REDIS_HEALTH_ENABLED: "true"
+        volumes:
+            - schf-logs:/app/logs
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+            interval: 15s
+            timeout: 5s
+            retries: 6
+            start_period: 40s
+        logging: *default-logging
+
+    db:
+        image: postgres:16-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB:-schf_v2}
+            POSTGRES_USER: ${POSTGRES_USER:-schf}
+            POSTGRES_PASSWORD: ${SCHF_DATABASE_PASSWORD}
+        volumes:
+            - schf-pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-schf} -d ${POSTGRES_DB:-schf_v2}"]
+            interval: 5s
+            timeout: 3s
+            retries: 20
+            start_period: 10s
+        logging: *default-logging
+
+    redis:
+        image: redis:7-alpine
+        restart: unless-stopped
+        command: ["redis-server", "--requirepass", "${SCHF_REDIS_PASSWORD}"]
+        volumes:
+            - schf-redis-data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "--raw", "-a", "${SCHF_REDIS_PASSWORD}", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 20
+            start_period: 5s
+        logging: *default-logging
+
+volumes:
+    schf-pgdata:
+        name: schf-clean-pgdata
+    schf-redis-data:
+        name: schf-clean-redis-data
+    schf-caddy-data:
+        name: schf-clean-caddy-data
+    schf-caddy-config:
+        name: schf-clean-caddy-config
+    schf-logs:
+        name: schf-clean-logs

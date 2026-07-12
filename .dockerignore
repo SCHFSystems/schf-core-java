@@ -1,10 +1,15 @@
 target/
 .git/
+.gitattributes
+.gitignore
 .env
 .env.*
 !.env.example
 logs/
 graphify-out/
+docs/
+AGENTS.md
+README.md
 *.FDB
 *.FBK
 *.schf
@@ -12,3 +17,4 @@ graphify-out/
 !src/main/resources/db/migration/*.sql
 *.dump
 *.backup
+*.md
