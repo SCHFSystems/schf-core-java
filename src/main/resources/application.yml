@@ -40,7 +40,16 @@ info:
     version: 0.1.0-SNAPSHOT
 
 schf:
+  tenant:
+    strategy: ${SCHF_TENANT_STRATEGY:authenticated}
   security:
+    jwt:
+      secret: ${SCHF_JWT_SECRET}
+      issuer: ${SCHF_JWT_ISSUER:schf-core-java}
+      audience: ${SCHF_JWT_AUDIENCE:schf-clients}
+      access-token-ttl-seconds: ${SCHF_ACCESS_TOKEN_TTL_SECONDS:900}
+      refresh-token-ttl-seconds: ${SCHF_REFRESH_TOKEN_TTL_SECONDS:1209600}
     bootstrap-admin:
       username: ${SCHF_BOOTSTRAP_ADMIN_USERNAME:admin}
+      email: ${SCHF_BOOTSTRAP_ADMIN_EMAIL:admin@example.invalid}
       password: ${SCHF_BOOTSTRAP_ADMIN_PASSWORD:local_dev_only_change_me}

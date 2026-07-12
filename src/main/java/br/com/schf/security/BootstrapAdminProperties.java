@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class BootstrapAdminProperties {
 
     private String username = "admin";
+    private String email = "admin@example.invalid";
     private String password = "local_dev_only_change_me";
 
     public String getUsername() {
@@ -14,6 +15,14 @@ public class BootstrapAdminProperties {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getPassword() {

@@ -1,5 +1,6 @@
 package br.com.schf.account;
 
+import br.com.schf.audit.AuditService;
 import br.com.schf.shared.FinancialAccountRequest;
 import br.com.schf.shared.FinancialAccountResponse;
 import br.com.schf.shared.TenantContext;
@@ -13,10 +14,13 @@ public class FinancialAccountService {
 
     private final FinancialAccountRepository repository;
     private final TenantContext tenant;
+    private final AuditService auditService;
 
-    public FinancialAccountService(FinancialAccountRepository repository, TenantContext tenant) {
+    public FinancialAccountService(FinancialAccountRepository repository, TenantContext tenant,
+                                   AuditService auditService) {
         this.repository = repository;
         this.tenant = tenant;
+        this.auditService = auditService;
     }
 
     public List<FinancialAccountResponse> findAll() {
@@ -30,7 +34,10 @@ public class FinancialAccountService {
         account.setBankName(request.bankName());
         account.setAgency(request.agency());
         account.setAccountNumber(request.accountNumber());
-        return toResponse(repository.save(account));
+        var saved = repository.save(account);
+        auditService.recordCurrent(tenant.getOrganizationId(), "ACCOUNT_CREATED", "FINANCIAL_ACCOUNT",
+            saved.getId().toString(), null);
+        return toResponse(saved);
     }
 
     private FinancialAccountResponse toResponse(FinancialAccount a) {

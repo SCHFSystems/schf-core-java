@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import br.com.schf.account.FinancialAccount;
 import br.com.schf.account.FinancialAccountRepository;
 import br.com.schf.account.FinancialAccountType;
+import br.com.schf.audit.AuditLogRepository;
 import br.com.schf.category.Category;
 import br.com.schf.category.CategoryRepository;
 import br.com.schf.supplier.CategoryType;
@@ -50,6 +51,8 @@ class PayablePaymentIntegrationTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("schf.tenant.strategy", () -> "auto");
+        registry.add("schf.security.jwt.secret", () ->
+            "fake_test_jwt_secret_that_is_longer_than_thirty_two_bytes_1234");
     }
 
     @Autowired SupplierRepository supplierRepository;
@@ -59,6 +62,7 @@ class PayablePaymentIntegrationTest {
     @Autowired PayableRepository payableRepository;
     @Autowired PaymentRepository paymentRepository;
     @Autowired PaymentService paymentService;
+    @Autowired AuditLogRepository auditLogRepository;
     @Autowired TenantContext tenantContext;
 
     UUID orgId;
@@ -87,6 +91,8 @@ class PayablePaymentIntegrationTest {
         assertThat(resp.amount()).isEqualByComparingTo("150.00");
         var updated = payableRepository.findById(payable.getId()).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo(PayableStatus.PAID);
+        assertThat(auditLogRepository.countByActionAndOrganizationId("PAYMENT_CREATED", orgId))
+            .isEqualTo(1);
     }
 
     @Test

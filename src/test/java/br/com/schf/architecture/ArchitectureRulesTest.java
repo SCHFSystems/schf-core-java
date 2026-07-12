@@ -31,6 +31,8 @@ class ArchitectureRulesTest {
         .areNotAnnotatedWith(org.springframework.web.bind.annotation.RestController.class)
         .and()
         .areNotAnnotatedWith(org.springframework.stereotype.Service.class)
+        .and()
+        .areNotAssignableTo(OncePerRequestFilter.class)
         .should()
         .dependOnClassesThat()
         .resideInAnyPackage("org.springframework.web..");

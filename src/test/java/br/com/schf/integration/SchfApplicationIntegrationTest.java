@@ -31,6 +31,8 @@ class SchfApplicationIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("schf.security.jwt.secret", () ->
+            "fake_test_jwt_secret_that_is_longer_than_thirty_two_bytes_1234");
     }
 
     @LocalServerPort

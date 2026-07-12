@@ -1,5 +1,6 @@
 package br.com.schf.category;
 
+import br.com.schf.audit.AuditService;
 import br.com.schf.shared.CategoryRequest;
 import br.com.schf.shared.CategoryResponse;
 import br.com.schf.shared.TenantContext;
@@ -14,10 +15,12 @@ public class CategoryService {
 
     private final CategoryRepository repository;
     private final TenantContext tenant;
+    private final AuditService auditService;
 
-    public CategoryService(CategoryRepository repository, TenantContext tenant) {
+    public CategoryService(CategoryRepository repository, TenantContext tenant, AuditService auditService) {
         this.repository = repository;
         this.tenant = tenant;
+        this.auditService = auditService;
     }
 
     public List<CategoryResponse> findAll() {
@@ -28,7 +31,10 @@ public class CategoryService {
     public CategoryResponse create(CategoryRequest request) {
         var type = CategoryType.valueOf(request.type());
         var category = new Category(tenant.getOrganizationId(), request.name(), type);
-        return toResponse(repository.save(category));
+        var saved = repository.save(category);
+        auditService.recordCurrent(tenant.getOrganizationId(), "CATEGORY_CREATED", "CATEGORY",
+            saved.getId().toString(), null);
+        return toResponse(saved);
     }
 
     private CategoryResponse toResponse(Category c) {

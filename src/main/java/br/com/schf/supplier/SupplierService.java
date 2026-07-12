@@ -1,5 +1,6 @@
 package br.com.schf.supplier;
 
+import br.com.schf.audit.AuditService;
 import br.com.schf.shared.SupplierRequest;
 import br.com.schf.shared.SupplierResponse;
 import br.com.schf.shared.TenantContext;
@@ -13,10 +14,12 @@ public class SupplierService {
 
     private final SupplierRepository repository;
     private final TenantContext tenant;
+    private final AuditService auditService;
 
-    public SupplierService(SupplierRepository repository, TenantContext tenant) {
+    public SupplierService(SupplierRepository repository, TenantContext tenant, AuditService auditService) {
         this.repository = repository;
         this.tenant = tenant;
+        this.auditService = auditService;
     }
 
     public List<SupplierResponse> findAll() {
@@ -29,7 +32,10 @@ public class SupplierService {
         supplier.setDocument(request.document());
         supplier.setEmail(request.email());
         supplier.setPhone(request.phone());
-        return toResponse(repository.save(supplier));
+        var saved = repository.save(supplier);
+        auditService.recordCurrent(tenant.getOrganizationId(), "SUPPLIER_CREATED", "SUPPLIER",
+            saved.getId().toString(), null);
+        return toResponse(saved);
     }
 
     private SupplierResponse toResponse(Supplier s) {

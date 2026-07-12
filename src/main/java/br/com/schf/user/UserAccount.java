@@ -43,6 +43,15 @@ public class UserAccount {
     @Column(nullable = false)
     private boolean active = true;
 
+    @Column(name = "password_hash", nullable = false, length = 120)
+    private String passwordHash;
+
+    @Column(name = "last_login_at")
+    private OffsetDateTime lastLoginAt;
+
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -102,5 +111,33 @@ public class UserAccount {
 
     public boolean isActive() {
         return active;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    public OffsetDateTime getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void markLoggedIn() {
+        this.lastLoginAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 }

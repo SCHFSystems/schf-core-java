@@ -1,46 +1,95 @@
 package br.com.schf.security;
 
+import br.com.schf.security.jwt.JwtProperties;
+import br.com.schf.security.permission.Permissions;
+import br.com.schf.security.principal.JwtAuthenticationFilter;
+import br.com.schf.security.tenant.TenantContextFilter;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties(BootstrapAdminProperties.class)
+@EnableMethodSecurity
+@EnableConfigurationProperties({BootstrapAdminProperties.class, JwtProperties.class})
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                            JwtAuthenticationFilter jwtFilter,
+                                            TenantContextFilter tenantFilter) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .formLogin(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint((request, response, exception) ->
+                    response.sendError(401, "Unauthorized"))
+                .accessDeniedHandler((request, response, exception) ->
+                    response.sendError(403, "Forbidden")))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/health", "/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
+                .requestMatchers("/api/health", "/actuator/health", "/actuator/info", "/actuator/prometheus")
+                    .permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+                    "/api/auth/password/forgot", "/api/auth/password/reset").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/suppliers/**")
+                    .hasAuthority(authority(Permissions.SUPPLIER_READ))
+                .requestMatchers(HttpMethod.POST, "/api/suppliers/**")
+                    .hasAuthority(authority(Permissions.SUPPLIER_WRITE))
+                .requestMatchers(HttpMethod.GET, "/api/categories/**")
+                    .hasAuthority(authority(Permissions.CATEGORY_READ))
+                .requestMatchers(HttpMethod.POST, "/api/categories/**")
+                    .hasAuthority(authority(Permissions.CATEGORY_WRITE))
+                .requestMatchers(HttpMethod.GET, "/api/financial-accounts/**")
+                    .hasAuthority(authority(Permissions.ACCOUNT_READ))
+                .requestMatchers(HttpMethod.POST, "/api/financial-accounts/**")
+                    .hasAuthority(authority(Permissions.ACCOUNT_WRITE))
+                .requestMatchers(HttpMethod.GET, "/api/payables/**")
+                    .hasAuthority(authority(Permissions.PAYABLE_READ))
+                .requestMatchers(HttpMethod.POST, "/api/payables/*/payments")
+                    .hasAuthority(authority(Permissions.PAYMENT_WRITE))
+                .requestMatchers(HttpMethod.POST, "/api/payables/**")
+                    .hasAuthority(authority(Permissions.PAYABLE_WRITE))
                 .anyRequest().authenticated())
-            .httpBasic(Customizer.withDefaults());
-
+            .addFilterAfter(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(tenantFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 
     @Bean
     PasswordEncoder passwordEncoder() {
-        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+        return new BCryptPasswordEncoder(12);
     }
 
     @Bean
-    UserDetailsService userDetailsService(BootstrapAdminProperties properties, PasswordEncoder passwordEncoder) {
-        var admin = User.withUsername(properties.getUsername())
-            .password(passwordEncoder.encode(properties.getPassword()))
-            .roles("ADMIN")
-            .build();
-        return new InMemoryUserDetailsManager(admin);
+    FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterRegistration(JwtAuthenticationFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    FilterRegistrationBean<TenantContextFilter> tenantFilterRegistration(TenantContextFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    private static String authority(String permission) {
+        return "PERM_" + permission;
     }
 }

@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FinancialAccountRepository extends JpaRepository<FinancialAccount, UUID> {
     List<FinancialAccount> findByOrganizationId(UUID organizationId);
+    boolean existsByIdAndOrganizationId(UUID id, UUID organizationId);
 }
