@@ -28,11 +28,13 @@ import br.com.schf.user.UserAccount;
 import br.com.schf.user.UserAccountRepository;
 import br.com.schf.user.UserRole;
 import java.math.BigDecimal;
+import java.net.http.HttpClient;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -41,6 +43,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -88,6 +91,12 @@ class SecurityIntegrationTest {
     @Autowired AuditLogRepository auditLogRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void useJdkHttpClient() {
+        restTemplate.getRestTemplate().setRequestFactory(
+            new JdkClientHttpRequestFactory(HttpClient.newHttpClient()));
+    }
 
     @Test
     void endpointWithoutTokenReturns401() {
