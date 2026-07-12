@@ -1,7 +1,7 @@
 package br.com.schf.migration.application;
 
 import br.com.schf.account.FinancialAccountRepository;
-import br.com.schf.audit.AuditService;
+import br.com.schf.migration.audit.MigrationAuditService;
 import br.com.schf.category.CategoryRepository;
 import br.com.schf.migration.api.MigrationErrorResponse;
 import br.com.schf.migration.api.MigrationJobResponse;
@@ -40,7 +40,7 @@ public class MigrationApplicationService {
     private final MigrationPhaseImporter phaseImporter;
     private final MigrationJobStateService stateService;
     private final TenantContext tenantContext;
-    private final AuditService auditService;
+    private final MigrationAuditService auditService;
     private final SupplierRepository supplierRepository;
     private final CategoryRepository categoryRepository;
     private final FinancialAccountRepository accountRepository;
@@ -56,7 +56,7 @@ public class MigrationApplicationService {
                                        MigrationPhaseImporter phaseImporter,
                                        MigrationJobStateService stateService,
                                        TenantContext tenantContext,
-                                       AuditService auditService,
+                                       MigrationAuditService auditService,
                                        SupplierRepository supplierRepository,
                                        CategoryRepository categoryRepository,
                                        FinancialAccountRepository accountRepository,
@@ -92,8 +92,7 @@ public class MigrationApplicationService {
         var job = existing == null ? createJob(organizationId, principal.getUserId(), bundle, dryRun) : existing;
         if (dryRun) {
             stateService.complete(job.getId(), MigrationStatus.COMPLETED);
-            auditService.recordCurrent(organizationId, "MIGRATION_DRY_RUN_COMPLETED", "MIGRATION_JOB",
-                job.getId().toString(), "totalRecords=" + bundle.totalRecords());
+            auditService.dryRunCompleted(organizationId, job.getId(), bundle.totalRecords());
             return response(job.getId());
         }
 
@@ -117,12 +116,10 @@ public class MigrationApplicationService {
             phase = "PAYMENTS"; result = phaseImporter.payments(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
             stateService.complete(job.getId(), skipped > 0 ? MigrationStatus.COMPLETED_WITH_WARNINGS : MigrationStatus.COMPLETED);
-            auditService.recordCurrent(organizationId, "MIGRATION_IMPORT_COMPLETED", "MIGRATION_JOB",
-                job.getId().toString(), "imported=" + imported + ";skipped=" + skipped);
+            auditService.completed(organizationId, job.getId(), imported, skipped);
         } catch (RuntimeException ex) {
             stateService.fail(job.getId(), phase);
-            auditService.recordCurrent(organizationId, "MIGRATION_IMPORT_FAILED", "MIGRATION_JOB",
-                job.getId().toString(), "phase=" + phase + ";code=IMPORT_PHASE_FAILED");
+            auditService.failed(organizationId, job.getId(), phase);
         }
         return response(job.getId());
     }
