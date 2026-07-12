@@ -4,6 +4,7 @@ import br.com.schf.security.jwt.JwtProperties;
 import br.com.schf.security.permission.Permissions;
 import br.com.schf.security.principal.JwtAuthenticationFilter;
 import br.com.schf.security.tenant.TenantContextFilter;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -40,6 +41,8 @@ public class SecurityConfig {
                 .accessDeniedHandler((request, response, exception) ->
                     response.sendError(403, "Forbidden")))
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/health", "/actuator/health", "/actuator/info", "/actuator/prometheus")
                     .permitAll()
                 .requestMatchers(HttpMethod.POST,
