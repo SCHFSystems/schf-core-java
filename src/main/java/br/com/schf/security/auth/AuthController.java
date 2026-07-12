@@ -43,6 +43,14 @@ public class AuthController {
         return authService.me(principal);
     }
 
+    @PostMapping("/change-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@AuthenticationPrincipal AuthenticatedUserPrincipal principal,
+                               @Valid @RequestBody ChangePasswordRequest request,
+                               HttpServletRequest httpRequest) {
+        authService.changePassword(principal, request, clientInfo(httpRequest));
+    }
+
     @PostMapping("/password/forgot")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public MessageResponse forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,

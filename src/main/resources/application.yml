@@ -49,6 +49,14 @@ schf:
       audience: ${SCHF_JWT_AUDIENCE:schf-clients}
       access-token-ttl-seconds: ${SCHF_ACCESS_TOKEN_TTL_SECONDS:900}
       refresh-token-ttl-seconds: ${SCHF_REFRESH_TOKEN_TTL_SECONDS:1209600}
+    hardening:
+      maximum-failed-logins: ${SCHF_MAXIMUM_FAILED_LOGINS:5}
+      lockout-seconds: ${SCHF_LOCKOUT_SECONDS:900}
+      rate-limit-window-seconds: ${SCHF_RATE_LIMIT_WINDOW_SECONDS:60}
+      login-rate-limit: ${SCHF_LOGIN_RATE_LIMIT:10}
+      refresh-rate-limit: ${SCHF_REFRESH_RATE_LIMIT:20}
+      forgot-password-rate-limit: ${SCHF_FORGOT_PASSWORD_RATE_LIMIT:5}
+      reset-password-rate-limit: ${SCHF_RESET_PASSWORD_RATE_LIMIT:10}
     bootstrap-admin:
       username: ${SCHF_BOOTSTRAP_ADMIN_USERNAME:admin}
       email: ${SCHF_BOOTSTRAP_ADMIN_EMAIL:admin@example.invalid}

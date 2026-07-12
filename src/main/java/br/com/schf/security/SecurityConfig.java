@@ -1,8 +1,10 @@
 package br.com.schf.security;
 
 import br.com.schf.security.jwt.JwtProperties;
+import br.com.schf.security.hardening.SecurityHardeningProperties;
 import br.com.schf.security.permission.Permissions;
 import br.com.schf.security.principal.JwtAuthenticationFilter;
+import br.com.schf.security.ratelimit.RateLimitFilter;
 import br.com.schf.security.tenant.TenantContextFilter;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,13 +25,15 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({BootstrapAdminProperties.class, JwtProperties.class})
+@EnableConfigurationProperties({BootstrapAdminProperties.class, JwtProperties.class,
+    SecurityHardeningProperties.class})
 public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             JwtAuthenticationFilter jwtFilter,
-                                            TenantContextFilter tenantFilter) throws Exception {
+                                            TenantContextFilter tenantFilter,
+                                            RateLimitFilter rateLimitFilter) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable)
@@ -49,6 +53,12 @@ public class SecurityConfig {
                     "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
                     "/api/auth/password/forgot", "/api/auth/password/reset").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/admin/audit-logs")
+                    .hasAnyAuthority(authority(Permissions.AUDIT_READ), authority(Permissions.ADMIN_ACCESS))
+                .requestMatchers(HttpMethod.GET, "/api/admin/users/**", "/api/admin/roles/**")
+                    .hasAnyAuthority(authority(Permissions.USER_READ), authority(Permissions.ADMIN_ACCESS))
+                .requestMatchers("/api/admin/users/**")
+                    .hasAnyAuthority(authority(Permissions.USER_WRITE), authority(Permissions.ADMIN_ACCESS))
                 .requestMatchers(HttpMethod.GET, "/api/suppliers/**")
                     .hasAuthority(authority(Permissions.SUPPLIER_READ))
                 .requestMatchers(HttpMethod.POST, "/api/suppliers/**")
@@ -68,6 +78,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/payables/**")
                     .hasAuthority(authority(Permissions.PAYABLE_WRITE))
                 .anyRequest().authenticated())
+            .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterAfter(jwtFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterAfter(tenantFilter, JwtAuthenticationFilter.class);
         return http.build();
@@ -87,6 +98,13 @@ public class SecurityConfig {
 
     @Bean
     FilterRegistrationBean<TenantContextFilter> tenantFilterRegistration(TenantContextFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
         var registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;

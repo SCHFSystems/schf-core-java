@@ -2,8 +2,12 @@ package br.com.schf.security.auth;
 
 import br.com.schf.audit.AuditService;
 import br.com.schf.security.jwt.JwtService;
+import br.com.schf.security.hardening.LoginAttemptService;
+import br.com.schf.security.metrics.SecurityMetrics;
 import br.com.schf.security.membership.UserRoleAssignmentRepository;
 import br.com.schf.security.principal.AuthenticatedUserPrincipal;
+import br.com.schf.security.reset.PasswordResetDelivery;
+import br.com.schf.security.reset.PasswordResetDeliveryService;
 import br.com.schf.security.token.PasswordResetToken;
 import br.com.schf.security.token.PasswordResetTokenRepository;
 import br.com.schf.security.token.RefreshToken;
@@ -36,6 +40,9 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuditService auditService;
+    private final LoginAttemptService loginAttemptService;
+    private final PasswordResetDeliveryService passwordResetDeliveryService;
+    private final SecurityMetrics metrics;
     private final Clock clock;
     private final String dummyPasswordHash;
 
@@ -46,6 +53,9 @@ public class AuthService {
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
                        AuditService auditService,
+                       LoginAttemptService loginAttemptService,
+                       PasswordResetDeliveryService passwordResetDeliveryService,
+                       SecurityMetrics metrics,
                        Clock clock) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
@@ -54,6 +64,9 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.auditService = auditService;
+        this.loginAttemptService = loginAttemptService;
+        this.passwordResetDeliveryService = passwordResetDeliveryService;
+        this.metrics = metrics;
         this.clock = clock;
         this.dummyPasswordHash = passwordEncoder.encode(randomToken());
     }
@@ -61,38 +74,51 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request, ClientRequestInfo client) {
         var user = userRepository.findByEmail(request.email().trim().toLowerCase()).orElse(null);
+        var now = OffsetDateTime.now(clock);
+        var locked = user != null && user.isTemporarilyLocked(now);
         var passwordMatches = passwordEncoder.matches(request.password(),
             user == null ? dummyPasswordHash : user.getPasswordHash());
-        if (user == null || !user.isActive() || !passwordMatches) {
+        if (user == null || !user.isActive() || locked || !passwordMatches) {
+            var newlyLocked = user != null && user.isActive() && !locked
+                && loginAttemptService.recordFailure(user.getId());
+            metrics.loginFailure();
             auditService.recordIndependent(user == null || user.getOrganization() == null ? null : user.getOrganization().getId(),
                 user == null ? null : user.getId(), "LOGIN_FAILURE", "AUTH", null, "FAILURE",
                 client.ipAddress(), client.userAgent(), "Invalid credentials");
+            if (newlyLocked) {
+                metrics.lockout();
+                auditService.recordIndependent(user.getOrganization().getId(), user.getId(), "ACCOUNT_LOCKED",
+                    "USER", user.getId().toString(), "FAILURE", client.ipAddress(), client.userAgent(),
+                    "Temporary login lockout");
+            }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
+        user.clearLoginFailures();
         user.markLoggedIn();
         userRepository.save(user);
         var permissions = userRoleRepository.findPermissionCodesByUserId(user.getId());
         var response = issueTokens(user, permissions, client);
         auditService.record(user.getOrganization().getId(), user.getId(), "LOGIN_SUCCESS", "AUTH",
             user.getId().toString(), "SUCCESS", client.ipAddress(), client.userAgent(), null);
+        metrics.loginSuccess();
         return response;
     }
 
     @Transactional
     public AuthResponse refresh(RefreshRequest request, ClientRequestInfo client) {
         var stored = refreshTokenRepository.findByTokenHash(hash(request.refreshToken()))
-            .orElseThrow(() -> unauthorized("Invalid refresh token"));
+            .orElseThrow(() -> deniedRefresh("Invalid refresh token"));
         var now = OffsetDateTime.now(clock);
         if (stored.isRevoked() || stored.isExpired(now)) {
-            throw unauthorized("Invalid refresh token");
+            throw deniedRefresh("Invalid refresh token");
         }
         var user = userRepository.findById(stored.getUserId())
             .filter(UserAccount::isActive)
-            .orElseThrow(() -> unauthorized("Invalid refresh token"));
+            .orElseThrow(() -> deniedRefresh("Invalid refresh token"));
         if (user.getOrganization() == null
             || !user.getOrganization().getId().equals(stored.getOrganizationId())) {
-            throw unauthorized("Invalid refresh token");
+            throw deniedRefresh("Invalid refresh token");
         }
 
         stored.revoke("ROTATED");
@@ -125,16 +151,10 @@ public class AuthService {
 
     @Transactional
     public void forgotPassword(ForgotPasswordRequest request, ClientRequestInfo client) {
+        metrics.passwordResetRequested();
         userRepository.findByEmail(request.email().trim().toLowerCase())
             .filter(UserAccount::isActive)
-            .ifPresent(user -> {
-                var rawToken = randomToken();
-                var reset = new PasswordResetToken(user.getId(), hash(rawToken),
-                    OffsetDateTime.now(clock).plusMinutes(30), client.ipAddress(), client.userAgent());
-                passwordResetTokenRepository.save(reset);
-                auditService.record(user.getOrganization().getId(), user.getId(), "PASSWORD_RESET_REQUESTED",
-                    "USER", user.getId().toString(), "SUCCESS", client.ipAddress(), client.userAgent(), null);
-            });
+            .ifPresent(user -> requestPasswordReset(user, client, "PASSWORD_RESET_REQUESTED"));
     }
 
     @Transactional
@@ -153,6 +173,33 @@ public class AuthService {
         passwordResetTokenRepository.save(reset);
         refreshTokenRepository.revokeAllForUser(user.getId(), "PASSWORD_RESET");
         auditService.record(user.getOrganization().getId(), user.getId(), "PASSWORD_RESET_COMPLETED",
+            "USER", user.getId().toString(), "SUCCESS", client.ipAddress(), client.userAgent(), null);
+    }
+
+    @Transactional
+    public void changePassword(AuthenticatedUserPrincipal principal, ChangePasswordRequest request,
+                               ClientRequestInfo client) {
+        var user = userRepository.findById(principal.getUserId())
+            .orElseThrow(() -> unauthorized("User not found"));
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is invalid");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        user.setMustChangePassword(false);
+        userRepository.save(user);
+        refreshTokenRepository.revokeAllForUser(user.getId(), "PASSWORD_CHANGED");
+        auditService.record(user.getOrganization().getId(), user.getId(), "PASSWORD_CHANGED", "USER",
+            user.getId().toString(), "SUCCESS", client.ipAddress(), client.userAgent(), null);
+    }
+
+    @Transactional
+    public void requestPasswordReset(UserAccount user, ClientRequestInfo client, String auditAction) {
+        var rawToken = randomToken();
+        var expiresAt = OffsetDateTime.now(clock).plusMinutes(30);
+        passwordResetTokenRepository.save(new PasswordResetToken(user.getId(), hash(rawToken),
+            expiresAt, client.ipAddress(), client.userAgent()));
+        passwordResetDeliveryService.deliver(new PasswordResetDelivery(user.getEmail(), rawToken, expiresAt));
+        auditService.record(user.getOrganization().getId(), user.getId(), auditAction,
             "USER", user.getId().toString(), "SUCCESS", client.ipAddress(), client.userAgent(), null);
     }
 
@@ -191,5 +238,10 @@ public class AuthService {
 
     private ResponseStatusException unauthorized(String message) {
         return new ResponseStatusException(HttpStatus.UNAUTHORIZED, message);
+    }
+
+    private ResponseStatusException deniedRefresh(String message) {
+        metrics.refreshDenied();
+        return unauthorized(message);
     }
 }

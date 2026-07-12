@@ -38,7 +38,8 @@ public class DevSeed implements CommandLineRunner {
         Permissions.ACCOUNT_READ, Permissions.ACCOUNT_WRITE,
         Permissions.PAYABLE_READ, Permissions.PAYABLE_WRITE,
         Permissions.PAYMENT_WRITE, Permissions.REPORT_READ,
-        Permissions.USER_READ, Permissions.USER_WRITE, Permissions.ADMIN_ACCESS);
+        Permissions.USER_READ, Permissions.USER_WRITE, Permissions.ADMIN_ACCESS,
+        Permissions.AUDIT_READ);
 
     private final OrganizationRepository organizationRepository;
     private final UserAccountRepository userRepository;

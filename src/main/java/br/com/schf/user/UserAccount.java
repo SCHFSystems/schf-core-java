@@ -52,6 +52,15 @@ public class UserAccount {
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
 
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts;
+
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
+
+    @Column(name = "password_changed_at")
+    private OffsetDateTime passwordChangedAt;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -119,6 +128,7 @@ public class UserAccount {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+        this.passwordChangedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public OffsetDateTime getLastLoginAt() {
@@ -139,5 +149,43 @@ public class UserAccount {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public int getFailedLoginAttempts() {
+        return failedLoginAttempts;
+    }
+
+    public OffsetDateTime getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public OffsetDateTime getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public boolean isTemporarilyLocked(OffsetDateTime now) {
+        return lockedUntil != null && lockedUntil.isAfter(now);
+    }
+
+    public boolean registerFailedLogin(OffsetDateTime now, int maximumAttempts, long lockoutSeconds) {
+        failedLoginAttempts++;
+        if (failedLoginAttempts >= maximumAttempts) {
+            lockedUntil = now.plusSeconds(lockoutSeconds);
+            return true;
+        }
+        return false;
+    }
+
+    public void clearLoginFailures() {
+        failedLoginAttempts = 0;
+        lockedUntil = null;
     }
 }
