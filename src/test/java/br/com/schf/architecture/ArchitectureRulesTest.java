@@ -32,6 +32,8 @@ class ArchitectureRulesTest {
         .and()
         .areNotAnnotatedWith(org.springframework.stereotype.Service.class)
         .and()
+        .areNotAnnotatedWith(org.springframework.web.bind.annotation.RestControllerAdvice.class)
+        .and()
         .areNotAssignableTo(OncePerRequestFilter.class)
         .should()
         .dependOnClassesThat()

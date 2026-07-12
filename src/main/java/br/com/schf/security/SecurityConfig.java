@@ -2,6 +2,7 @@ package br.com.schf.security;
 
 import br.com.schf.security.jwt.JwtProperties;
 import br.com.schf.security.hardening.SecurityHardeningProperties;
+import br.com.schf.migration.validation.MigrationProperties;
 import br.com.schf.security.permission.Permissions;
 import br.com.schf.security.principal.JwtAuthenticationFilter;
 import br.com.schf.security.ratelimit.RateLimitFilter;
@@ -26,7 +27,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 @EnableMethodSecurity
 @EnableConfigurationProperties({BootstrapAdminProperties.class, JwtProperties.class,
-    SecurityHardeningProperties.class})
+    SecurityHardeningProperties.class, MigrationProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -53,6 +54,11 @@ public class SecurityConfig {
                     "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
                     "/api/auth/password/forgot", "/api/auth/password/reset").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/admin/migrations/**")
+                    .hasAnyAuthority(authority(Permissions.MIGRATION_READ),
+                        authority(Permissions.MIGRATION_IMPORT), authority(Permissions.ADMIN_ACCESS))
+                .requestMatchers(HttpMethod.POST, "/api/admin/migrations/**")
+                    .hasAnyAuthority(authority(Permissions.MIGRATION_IMPORT), authority(Permissions.ADMIN_ACCESS))
                 .requestMatchers(HttpMethod.GET, "/api/admin/audit-logs")
                     .hasAnyAuthority(authority(Permissions.AUDIT_READ), authority(Permissions.ADMIN_ACCESS))
                 .requestMatchers(HttpMethod.GET, "/api/admin/users/**", "/api/admin/roles/**")

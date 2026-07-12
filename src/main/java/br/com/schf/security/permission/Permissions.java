@@ -16,6 +16,8 @@ public final class Permissions {
     public static final String USER_WRITE = "USER_WRITE";
     public static final String ADMIN_ACCESS = "ADMIN_ACCESS";
     public static final String AUDIT_READ = "AUDIT_READ";
+    public static final String MIGRATION_READ = "MIGRATION_READ";
+    public static final String MIGRATION_IMPORT = "MIGRATION_IMPORT";
 
     private Permissions() {
     }
