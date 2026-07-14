@@ -5,6 +5,7 @@ import br.com.schf.migration.domain.BundleManifest;
 import br.com.schf.migration.domain.BundlePaths;
 import br.com.schf.migration.domain.CanonicalBundle;
 import br.com.schf.migration.domain.CanonicalCategory;
+import br.com.schf.migration.domain.CanonicalCounterparty;
 import br.com.schf.migration.domain.CanonicalFinancialAccount;
 import br.com.schf.migration.domain.CanonicalOrganization;
 import br.com.schf.migration.domain.CanonicalPayable;
@@ -32,6 +33,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class CanonicalBundleValidator {
     public static final String FORMAT_VERSION = "1.0";
+    public static final String FORMAT_VERSION_1_1 = "1.1";
+    public static final Set<String> SUPPORTED_FORMATS = Set.of(FORMAT_VERSION, FORMAT_VERSION_1_1);
     public static final String SCHEMA_VERSION = "1";
 
     private final SecureBundleArchiveReader archiveReader;
@@ -70,36 +73,44 @@ public class CanonicalBundleValidator {
             CanonicalCategory.class, BundlePaths.CATEGORIES, issues);
         var accounts = parseNdjson(content.files().get(BundlePaths.ACCOUNTS),
             CanonicalFinancialAccount.class, BundlePaths.ACCOUNTS, issues);
+        var counterparties = parseNdjson(content.files().get(BundlePaths.COUNTERPARTIES),
+            CanonicalCounterparty.class, BundlePaths.COUNTERPARTIES, issues);
         var payables = parseNdjson(content.files().get(BundlePaths.PAYABLES),
             CanonicalPayable.class, BundlePaths.PAYABLES, issues);
         var payments = parseNdjson(content.files().get(BundlePaths.PAYMENTS),
             CanonicalPayment.class, BundlePaths.PAYMENTS, issues);
 
-        validateCounts(manifest, Map.of(
-            "organizations", (long) organizations.size(), "users", (long) users.size(),
-            "suppliers", (long) suppliers.size(), "categories", (long) categories.size(),
-            "financialAccounts", (long) accounts.size(), "payables", (long) payables.size(),
-            "payments", (long) payments.size()), issues);
-        validateDuplicates("ORGANIZATION", organizations.stream().map(CanonicalOrganization::externalId).toList(), issues);
-        validateDuplicates("USER", users.stream().map(CanonicalUser::externalId).toList(), issues);
-        validateDuplicates("SUPPLIER", suppliers.stream().map(CanonicalSupplier::externalId).toList(), issues);
-        validateDuplicates("CATEGORY", categories.stream().map(CanonicalCategory::externalId).toList(), issues);
-        validateDuplicates("FINANCIAL_ACCOUNT", accounts.stream().map(CanonicalFinancialAccount::externalId).toList(), issues);
-        validateDuplicates("PAYABLE", payables.stream().map(CanonicalPayable::externalId).toList(), issues);
-        validateDuplicates("PAYMENT", payments.stream().map(CanonicalPayment::externalId).toList(), issues);
-        validateValues(manifest, organizations, users, suppliers, categories, accounts, payables, payments, issues);
+        var bundle = new CanonicalBundle(content.bundleId(), manifest, organizations, users, suppliers,
+            categories, accounts, counterparties, payables, payments, declaredChecksums);
         failIfAny(issues);
 
-        var bundle = new CanonicalBundle(content.bundleId(), manifest, organizations, users, suppliers,
-            categories, accounts, payables, payments, declaredChecksums);
-        var report = new BundleValidationReport(true, content.bundleId(), bundle.totalRecords(),
-            Map.copyOf(manifest.recordCounts()), List.of());
+        var dataIssues = new ArrayList<ValidationIssue>();
+        validateCounts(manifest, Map.of(
+            "organizations.ndjson", (long) organizations.size(), "users.ndjson", (long) users.size(),
+            "suppliers.ndjson", (long) suppliers.size(), "categories.ndjson", (long) categories.size(),
+            "financial-accounts.ndjson", (long) accounts.size(), "counterparties.ndjson", (long) counterparties.size(),
+            "payables.ndjson", (long) payables.size(), "payments.ndjson", (long) payments.size()), dataIssues);
+        validateDuplicates("ORGANIZATION", organizations.stream().map(CanonicalOrganization::externalId).toList(), dataIssues);
+        validateDuplicates("USER", users.stream().map(CanonicalUser::externalId).toList(), dataIssues);
+        validateDuplicates("SUPPLIER", suppliers.stream().map(CanonicalSupplier::externalId).toList(), dataIssues);
+        validateDuplicates("CATEGORY", categories.stream().map(CanonicalCategory::externalId).toList(), dataIssues);
+        validateDuplicates("FINANCIAL_ACCOUNT", accounts.stream().map(CanonicalFinancialAccount::externalId).toList(), dataIssues);
+        validateDuplicates("COUNTERPARTY", counterparties.stream().map(CanonicalCounterparty::externalId).toList(), dataIssues);
+        validateDuplicates("PAYABLE", payables.stream().map(CanonicalPayable::externalId).toList(), dataIssues);
+        validateDuplicates("PAYMENT", payments.stream().map(CanonicalPayment::externalId).toList(), dataIssues);
+        validateValues(manifest, organizations, users, suppliers, categories, accounts, counterparties, payables, payments, dataIssues);
+        var hasDataIssues = !dataIssues.isEmpty();
+        issues.addAll(dataIssues);
+
+        var valid = !hasDataIssues;
+        var report = new BundleValidationReport(valid, content.bundleId(), bundle.totalRecords(),
+            Map.copyOf(manifest.recordCounts()), List.copyOf(issues));
         return new ValidatedBundle(bundle, report);
     }
 
     private void validateManifest(BundleManifest manifest, List<ValidationIssue> issues) {
         if (manifest == null) return;
-        if (!FORMAT_VERSION.equals(manifest.bundleFormatVersion()))
+        if (!SUPPORTED_FORMATS.contains(manifest.bundleFormatVersion()))
             issues.add(issue("INCOMPATIBLE_BUNDLE_VERSION", BundlePaths.MANIFEST, null, "Bundle format version is unsupported"));
         if (!SCHEMA_VERSION.equals(manifest.schemaVersion()))
             issues.add(issue("INCOMPATIBLE_SCHEMA_VERSION", BundlePaths.MANIFEST, null, "Bundle schema version is unsupported"));
@@ -171,7 +182,13 @@ public class CanonicalBundleValidator {
                                 List<ValidationIssue> issues) {
         if (manifest == null || manifest.recordCounts() == null) return;
         for (var entry : actual.entrySet()) {
-            if (!entry.getValue().equals(manifest.recordCounts().get(entry.getKey()))) {
+            var declared = manifest.recordCounts().get(entry.getKey());
+            if (declared == null) {
+                issues.add(issue("COUNT_MISMATCH", BundlePaths.MANIFEST, null,
+                    "Manifest missing count for " + entry.getKey()));
+                continue;
+            }
+            if (!entry.getValue().equals(declared)) {
                 issues.add(issue("COUNT_MISMATCH", BundlePaths.MANIFEST, null,
                     "Declared record count does not match " + entry.getKey()));
             }
@@ -191,8 +208,8 @@ public class CanonicalBundleValidator {
     private void validateValues(BundleManifest manifest, List<CanonicalOrganization> organizations,
                                 List<CanonicalUser> users, List<CanonicalSupplier> suppliers,
                                 List<CanonicalCategory> categories, List<CanonicalFinancialAccount> accounts,
-                                List<CanonicalPayable> payables, List<CanonicalPayment> payments,
-                                List<ValidationIssue> issues) {
+                                List<CanonicalCounterparty> counterparties, List<CanonicalPayable> payables,
+                                List<CanonicalPayment> payments, List<ValidationIssue> issues) {
         if (organizations.size() != 1 || manifest == null || organizations.stream().noneMatch(
             organization -> organization.externalId().equals(manifest.organizationExternalId()))) {
             issues.add(issue("ORGANIZATION_MAPPING_INVALID", BundlePaths.ORGANIZATIONS, null,
@@ -207,11 +224,17 @@ public class CanonicalBundleValidator {
         payments.forEach(payment -> validateMoney(payment.amount(), "PAYMENT", payment.externalId(), issues));
 
         var supplierIds = ids(suppliers.stream().map(CanonicalSupplier::externalId).toList());
+        var counterpartyIds = ids(counterparties.stream().map(CanonicalCounterparty::externalId).toList());
         var categoryIds = ids(categories.stream().map(CanonicalCategory::externalId).toList());
         var accountIds = ids(accounts.stream().map(CanonicalFinancialAccount::externalId).toList());
         var payableIds = ids(payables.stream().map(CanonicalPayable::externalId).toList());
         for (CanonicalPayable payable : payables) {
-            if (!supplierIds.contains(payable.supplierExternalId()) || !categoryIds.contains(payable.categoryExternalId())
+            var counterpartyResolved = payable.counterpartyExternalId() != null
+                && counterpartyIds.contains(payable.counterpartyExternalId());
+            var supplierResolved = payable.supplierExternalId() != null
+                && supplierIds.contains(payable.supplierExternalId());
+            if ((!counterpartyResolved && !supplierResolved)
+                || !categoryIds.contains(payable.categoryExternalId())
                 || payable.financialAccountExternalId() != null && !accountIds.contains(payable.financialAccountExternalId())) {
                 issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYABLES, null,
                     "Payable contains an unresolved canonical reference"));

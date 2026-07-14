@@ -24,10 +24,10 @@ public class Payment {
     @Column(name = "payable_id", nullable = false)
     private UUID payableId;
 
-    @Column(name = "financial_account_id", nullable = false)
+    @Column(name = "financial_account_id")
     private UUID financialAccountId;
 
-    @Column(name = "payment_date", nullable = false)
+    @Column(name = "payment_date")
     private LocalDate paymentDate;
 
     @Column(nullable = false, precision = 19, scale = 4)
@@ -49,6 +49,14 @@ public class Payment {
         this.financialAccountId = financialAccountId;
         this.paymentDate = paymentDate;
         this.amount = amount;
+    }
+
+    public void setFinancialAccountId(UUID financialAccountId) {
+        this.financialAccountId = financialAccountId;
+    }
+
+    public void setPaymentDate(LocalDate paymentDate) {
+        this.paymentDate = paymentDate;
     }
 
     @PrePersist

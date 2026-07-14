@@ -107,6 +107,8 @@ public class MigrationApplicationService {
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
             phase = "SUPPLIERS"; result = phaseImporter.suppliers(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
+            phase = "COUNTERPARTIES"; result = phaseImporter.counterparties(job.getId(), organizationId, bundle);
+            imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
             phase = "CATEGORIES"; result = phaseImporter.categories(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
             phase = "FINANCIAL_ACCOUNTS"; result = phaseImporter.accounts(job.getId(), organizationId, bundle);
@@ -162,6 +164,7 @@ public class MigrationApplicationService {
         counts.put("suppliers", (long) supplierRepository.findByOrganizationId(job.getOrganizationId()).size());
         counts.put("categories", (long) categoryRepository.findByOrganizationId(job.getOrganizationId()).size());
         counts.put("financialAccounts", (long) accountRepository.findByOrganizationId(job.getOrganizationId()).size());
+        counts.put("counterparties", (long) supplierRepository.findByOrganizationId(job.getOrganizationId()).size());
         counts.put("payables", (long) payableRepository.findByOrganizationId(job.getOrganizationId()).size());
         counts.put("payments", (long) paymentRepository.findByOrganizationId(job.getOrganizationId()).size());
         counts.put("externalIds", externalIdRepository.countByMigrationJobId(job.getId()));
@@ -185,6 +188,7 @@ public class MigrationApplicationService {
         if (path.equals(BundlePaths.SUPPLIERS)) return bundle.suppliers().size();
         if (path.equals(BundlePaths.CATEGORIES)) return bundle.categories().size();
         if (path.equals(BundlePaths.ACCOUNTS)) return bundle.financialAccounts().size();
+        if (path.equals(BundlePaths.COUNTERPARTIES)) return bundle.counterparties().size();
         if (path.equals(BundlePaths.PAYABLES)) return bundle.payables().size();
         return bundle.payments().size();
     }

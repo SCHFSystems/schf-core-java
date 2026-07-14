@@ -1,0 +1,4 @@
+ALTER TABLE payables ALTER COLUMN issue_date DROP NOT NULL;
+ALTER TABLE payables ALTER COLUMN due_date DROP NOT NULL;
+ALTER TABLE payments ALTER COLUMN financial_account_id DROP NOT NULL;
+ALTER TABLE payments ALTER COLUMN payment_date DROP NOT NULL;

@@ -39,10 +39,10 @@ public class Payable {
     @Column(name = "document_number", length = 80)
     private String documentNumber;
 
-    @Column(name = "issue_date", nullable = false)
+    @Column(name = "issue_date")
     private LocalDate issueDate;
 
-    @Column(name = "due_date", nullable = false)
+    @Column(name = "due_date")
     private LocalDate dueDate;
 
     @Column(nullable = false, precision = 19, scale = 4)

@@ -6,6 +6,8 @@ import br.com.schf.account.FinancialAccountType;
 import br.com.schf.category.Category;
 import br.com.schf.category.CategoryRepository;
 import br.com.schf.migration.domain.CanonicalBundle;
+import br.com.schf.migration.domain.CanonicalCounterparty;
+import br.com.schf.migration.domain.CanonicalPayable;
 import br.com.schf.migration.domain.MigrationExternalId;
 import br.com.schf.migration.infrastructure.MigrationExternalIdRepository;
 import br.com.schf.organization.OrganizationRepository;
@@ -23,6 +25,7 @@ import br.com.schf.supplier.SupplierRepository;
 import br.com.schf.user.UserAccount;
 import br.com.schf.user.UserAccountRepository;
 import br.com.schf.user.UserRole;
+import java.time.LocalDate;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -80,9 +83,11 @@ public class MigrationPhaseImporter {
         long imported = 0, skipped = 0;
         for (var record : bundle.users()) {
             if (mapped(organizationId, bundle, "USER", record.externalId()) != null) { skipped++; continue; }
-            if (userRepository.existsByEmailIgnoreCase(record.email()) || userRepository.existsByUsername(record.username()))
+            var email = record.email() == null || record.email().isBlank()
+                ? record.externalId() + "@imported.local" : record.email().trim().toLowerCase();
+            if (userRepository.existsByEmailIgnoreCase(email) || userRepository.existsByUsername(record.username()))
                 throw new IllegalStateException("Canonical user conflicts with an existing account");
-            var user = new UserAccount(organization, record.username(), record.email().trim().toLowerCase(),
+            var user = new UserAccount(organization, record.username(), email,
                 record.displayName(), UserRole.CONSULTA);
             user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
             user.setMustChangePassword(true);
@@ -145,8 +150,10 @@ public class MigrationPhaseImporter {
         long imported = 0, skipped = 0;
         for (var record : bundle.payables()) {
             if (mapped(organizationId, bundle, "PAYABLE", record.externalId()) != null) { skipped++; continue; }
-            var supplierId = requiredMap(organizationId, bundle, "SUPPLIER", record.supplierExternalId());
-            var categoryId = requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId());
+            var supplierId = resolvePayableSupplier(organizationId, bundle, record);
+            var categoryId = record.categoryExternalId() != null
+                ? requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId())
+                : null;
             var entity = new Payable(organizationId, supplierId, categoryId, record.description(),
                 record.issueDate(), record.dueDate(), record.amount());
             entity.setDocumentNumber(record.documentNumber());
@@ -159,13 +166,55 @@ public class MigrationPhaseImporter {
         return new PhaseResult(imported, skipped);
     }
 
+    private UUID resolvePayableSupplier(UUID organizationId, CanonicalBundle bundle,
+                                         CanonicalPayable payable) {
+        if (payable.supplierExternalId() != null) {
+            return requiredMap(organizationId, bundle, "SUPPLIER", payable.supplierExternalId());
+        }
+        var cpId = payable.counterpartyExternalId();
+        if (cpId != null) {
+            var existing = mapped(organizationId, bundle, "COUNTERPARTY", cpId);
+            if (existing != null) return existing;
+            existing = mapped(organizationId, bundle, "SUPPLIER", cpId);
+            if (existing != null) return existing;
+            throw new IllegalStateException("Counterparty not imported: " + cpId);
+        }
+        throw new IllegalStateException("Payable has no supplier or counterparty reference");
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PhaseResult counterparties(UUID jobId, UUID organizationId, CanonicalBundle bundle) {
+        long imported = 0, skipped = 0;
+        for (var record : bundle.counterparties()) {
+            if (mapped(organizationId, bundle, "COUNTERPARTY", record.externalId()) != null) { skipped++; continue; }
+            var existingSupplier = mapped(organizationId, bundle, "SUPPLIER", record.externalId());
+            if (existingSupplier != null) {
+                saveMap(jobId, organizationId, bundle, "COUNTERPARTY", record.externalId(), existingSupplier);
+                skipped++;
+                continue;
+            }
+            var entity = new Supplier(organizationId, record.name());
+            entity.setActive(true);
+            entity = supplierRepository.save(entity);
+            saveMap(jobId, organizationId, bundle, "COUNTERPARTY", record.externalId(), entity.getId());
+            imported++;
+        }
+        return new PhaseResult(imported, skipped);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PhaseResult payments(UUID jobId, UUID organizationId, CanonicalBundle bundle) {
         long imported = 0, skipped = 0;
         for (var record : bundle.payments()) {
+            if (record.externalId() == null) {
+                throw new IllegalStateException("Payment is missing externalId");
+            }
             if (mapped(organizationId, bundle, "PAYMENT", record.externalId()) != null) { skipped++; continue; }
             var payableId = requiredMap(organizationId, bundle, "PAYABLE", record.payableExternalId());
-            var accountId = requiredMap(organizationId, bundle, "FINANCIAL_ACCOUNT", record.financialAccountExternalId());
+            UUID accountId = null;
+            if (record.financialAccountExternalId() != null) {
+                accountId = requiredMap(organizationId, bundle, "FINANCIAL_ACCOUNT", record.financialAccountExternalId());
+            }
             var entity = new Payment(organizationId, payableId, accountId, record.paymentDate(), record.amount());
             entity.setNotes(record.notes()); entity = paymentRepository.save(entity);
             saveMap(jobId, organizationId, bundle, "PAYMENT", record.externalId(), entity.getId()); imported++;

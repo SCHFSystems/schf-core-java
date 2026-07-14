@@ -120,6 +120,6 @@ class SetupServiceTest {
         assertThat(response.completed()).isTrue();
         assertThat(response.message()).contains("completed successfully");
         verify(setupRepository).save(any(InstanceSetup.class));
-        verify(auditService).recordIndependent(any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(auditService).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 }

@@ -99,7 +99,7 @@ public class SetupService {
         setupRow.complete(organization.getId());
         setupRepository.save(setupRow);
 
-        auditService.recordIndependent(organization.getId(), null, "INSTANCE_SETUP_COMPLETED",
+        auditService.record(organization.getId(), null, "INSTANCE_SETUP_COMPLETED",
             "SETUP", organization.getId().toString(), "SUCCESS", "127.0.0.1", "SCHF-SETUP",
             "Instance setup completed for organization " + organization.getCode());
 

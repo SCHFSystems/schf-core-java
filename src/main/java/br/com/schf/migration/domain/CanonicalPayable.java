@@ -1,9 +1,11 @@
 package br.com.schf.migration.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record CanonicalPayable(
     UUID externalId,
     UUID supplierExternalId,
@@ -14,6 +16,8 @@ public record CanonicalPayable(
     LocalDate issueDate,
     LocalDate dueDate,
     BigDecimal amount,
-    String status
+    String status,
+    UUID counterpartyExternalId,
+    String counterpartyType
 ) {
 }

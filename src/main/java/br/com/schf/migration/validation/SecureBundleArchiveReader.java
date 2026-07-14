@@ -18,7 +18,7 @@ public class SecureBundleArchiveReader {
     private static final Set<String> ALLOWED_FILES = Set.of(
         BundlePaths.MANIFEST, BundlePaths.CHECKSUMS, BundlePaths.ORGANIZATIONS,
         BundlePaths.USERS, BundlePaths.SUPPLIERS, BundlePaths.CATEGORIES,
-        BundlePaths.ACCOUNTS, BundlePaths.PAYABLES, BundlePaths.PAYMENTS, BundlePaths.SUMMARY);
+        BundlePaths.ACCOUNTS, BundlePaths.COUNTERPARTIES, BundlePaths.PAYABLES, BundlePaths.PAYMENTS, BundlePaths.SUMMARY);
 
     private final MigrationProperties properties;
 

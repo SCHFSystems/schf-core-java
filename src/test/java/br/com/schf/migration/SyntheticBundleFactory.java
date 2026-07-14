@@ -25,6 +25,7 @@ public final class SyntheticBundleFactory {
     public static final UUID ACCOUNT_ID = UUID.fromString("50000000-0000-0000-0000-000000000001");
     public static final UUID PAYABLE_OPEN_ID = UUID.fromString("60000000-0000-0000-0000-000000000001");
     public static final UUID PAYABLE_PAID_ID = UUID.fromString("60000000-0000-0000-0000-000000000002");
+    public static final UUID COUNTERPARTY_ID = UUID.fromString("25000000-0000-0000-0000-000000000001");
     public static final UUID PAYMENT_ID = UUID.fromString("70000000-0000-0000-0000-000000000001");
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -43,6 +44,8 @@ public final class SyntheticBundleFactory {
             "type", "EXPENSE", "active", true))));
         data.put(ACCOUNTS, list(json(Map.of("externalId", ACCOUNT_ID, "name", "Synthetic Account",
             "type", "BANK", "bankName", "Synthetic Bank", "agency", "0001", "accountNumber", "00001", "active", true))));
+        data.put(COUNTERPARTIES, list(json(Map.of("externalId", COUNTERPARTY_ID, "name", "Synthetic Counterparty",
+            "type", "SUPPLIER", "sourceReference", "3|1"))));
         data.put(PAYABLES, list(
             json(Map.of("externalId", PAYABLE_OPEN_ID, "supplierExternalId", SUPPLIER_ID,
                 "categoryExternalId", CATEGORY_ID, "financialAccountExternalId", ACCOUNT_ID,
@@ -107,13 +110,14 @@ public final class SyntheticBundleFactory {
     }
 
     private static String countKey(String path) {
-        if (path.equals(ORGANIZATIONS)) return "organizations";
-        if (path.equals(USERS)) return "users";
-        if (path.equals(SUPPLIERS)) return "suppliers";
-        if (path.equals(CATEGORIES)) return "categories";
-        if (path.equals(ACCOUNTS)) return "financialAccounts";
-        if (path.equals(PAYABLES)) return "payables";
-        return "payments";
+        if (path.equals(ORGANIZATIONS)) return "organizations.ndjson";
+        if (path.equals(USERS)) return "users.ndjson";
+        if (path.equals(SUPPLIERS)) return "suppliers.ndjson";
+        if (path.equals(CATEGORIES)) return "categories.ndjson";
+        if (path.equals(ACCOUNTS)) return "financial-accounts.ndjson";
+        if (path.equals(COUNTERPARTIES)) return "counterparties.ndjson";
+        if (path.equals(PAYABLES)) return "payables.ndjson";
+        return "payments.ndjson";
     }
 
     private static ArrayList<String> list(String... values) { return new ArrayList<>(List.of(values)); }

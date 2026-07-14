@@ -8,9 +8,11 @@ import br.com.schf.migration.validation.BundleValidationException;
 import br.com.schf.migration.validation.CanonicalBundleValidator;
 import br.com.schf.migration.validation.MigrationProperties;
 import br.com.schf.migration.validation.SecureBundleArchiveReader;
+import br.com.schf.migration.validation.ValidationIssue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,7 +32,7 @@ class CanonicalBundleValidatorTest {
     @Test void validBundlePasses() {
         var result = validator.validate(SyntheticBundleFactory.validArchive());
         assertThat(result.report().valid()).isTrue();
-        assertThat(result.bundle().totalRecords()).isEqualTo(8);
+        assertThat(result.bundle().totalRecords()).isEqualTo(9);
     }
 
     @Test void missingManifestFails() {
@@ -74,20 +76,20 @@ class CanonicalBundleValidatorTest {
     @Test void duplicateExternalIdFails() {
         var data = SyntheticBundleFactory.validData();
         data.get(SUPPLIERS).add(data.get(SUPPLIERS).getFirst());
-        assertCode(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "DUPLICATE_EXTERNAL_ID");
+        assertDataIssue(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "DUPLICATE_EXTERNAL_ID");
     }
 
     @Test void missingReferenceFails() {
         var data = SyntheticBundleFactory.validData();
         data.get(PAYMENTS).set(0, data.get(PAYMENTS).getFirst().replace(
             SyntheticBundleFactory.ACCOUNT_ID.toString(), UUID.randomUUID().toString()));
-        assertCode(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "REFERENCE_NOT_FOUND");
+        assertDataIssue(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "REFERENCE_NOT_FOUND");
     }
 
     @Test void invalidMoneyFails() {
         var data = SyntheticBundleFactory.validData();
         data.get(PAYMENTS).set(0, data.get(PAYMENTS).getFirst().replace("50.25", "-1.00"));
-        assertCode(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "INVALID_MONEY");
+        assertDataIssue(SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0")), "INVALID_MONEY");
     }
 
     @Test void invalidDateFails() {
@@ -101,5 +103,10 @@ class CanonicalBundleValidatorTest {
             .isInstanceOf(BundleValidationException.class)
             .satisfies(error -> assertThat(((BundleValidationException) error).getIssues())
                 .extracting(issue -> issue.code()).contains(code));
+    }
+
+    private void assertDataIssue(byte[] archive, String code) {
+        var result = validator.validate(archive);
+        assertThat(result.report().issues()).extracting(ValidationIssue::code).contains(code);
     }
 }
