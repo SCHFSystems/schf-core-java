@@ -135,7 +135,7 @@ class MigrationImporterIntegrationTest {
         assertThat(first.getBody()).contains("\"status\":\"COMPLETED\"");
         assertThat(second.getBody()).contains("\"id\":\"" + firstId + "\"");
         assertThat(supplierRepository.findByOrganizationId(organization.getId())).hasSize(supplierCount);
-        assertThat(report.getBody()).contains("\"status\":\"COMPLETED\"", "\"externalIds\":8");
+        assertThat(report.getBody()).contains("\"status\":\"COMPLETED\"", "\"externalIds\":9");
         assertThat(auditLogRepository.countByActionAndOrganizationId(
             "MIGRATION_IMPORT_COMPLETED", organization.getId())).isEqualTo(1);
     }
