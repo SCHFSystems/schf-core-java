@@ -135,6 +135,7 @@ public class MigrationApplicationService {
         } catch (RuntimeException ex) {
             stateService.fail(job.getId(), phase);
             auditService.failed(organizationId, job.getId(), phase);
+            org.slf4j.LoggerFactory.getLogger(getClass()).error("Import failed at phase {}: {}", phase, ex.toString());
         }
         return response(job.getId());
     }

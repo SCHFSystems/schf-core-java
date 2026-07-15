@@ -33,7 +33,7 @@ public class Payable {
     @Column(name = "financial_account_id")
     private UUID financialAccountId;
 
-    @Column(nullable = false)
+    @Column
     private String description;
 
     @Column(name = "document_number", length = 80)

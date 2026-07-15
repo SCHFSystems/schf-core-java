@@ -1,0 +1,1 @@
+ALTER TABLE payables ALTER COLUMN description DROP NOT NULL;

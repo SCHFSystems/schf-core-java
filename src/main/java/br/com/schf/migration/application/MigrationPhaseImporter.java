@@ -156,8 +156,8 @@ public class MigrationPhaseImporter {
             var categoryId = record.categoryExternalId() != null
                 ? requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId())
                 : null;
-            var desc = record.description() == null || record.description().isBlank()
-                ? "Payable " + record.externalId() : record.description();
+            var desc = record.description() != null && !record.description().isBlank()
+                ? record.description() : null;
             var entity = new Payable(organizationId, supplierId, categoryId, desc,
                 record.issueDate(), record.dueDate(), record.amount());
             entity.setDocumentNumber(record.documentNumber());
@@ -182,21 +182,7 @@ public class MigrationPhaseImporter {
             existing = mapped(organizationId, bundle, "SUPPLIER", cpId);
             if (existing != null) return existing;
         }
-        return unknownSupplier(organizationId);
-    }
-
-    private UUID unknownSupplierId;
-
-    private UUID unknownSupplier(UUID organizationId) {
-        if (unknownSupplierId != null) return unknownSupplierId;
-        var existing = supplierRepository.findByOrganizationId(organizationId).stream()
-            .filter(s -> "UNKNOWN SUPPLIER".equals(s.getName()))
-            .findFirst();
-        unknownSupplierId = existing.map(Supplier::getId).orElseGet(() -> {
-            var s = supplierRepository.save(new Supplier(organizationId, "UNKNOWN SUPPLIER"));
-            return s.getId();
-        });
-        return unknownSupplierId;
+        throw new IllegalStateException("Payable references no supplier or counterparty");
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

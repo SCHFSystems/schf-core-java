@@ -20,12 +20,19 @@ import java.util.zip.ZipOutputStream;
 public final class SyntheticBundleFactory {
     public static final UUID ORGANIZATION_ID = UUID.fromString("10000000-0000-0000-0000-000000000001");
     public static final UUID USER_ID = UUID.fromString("20000000-0000-0000-0000-000000000001");
+    public static final UUID USER_NULL_DISPLAYNAME_ID = UUID.fromString("20000000-0000-0000-0000-000000000002");
     public static final UUID SUPPLIER_ID = UUID.fromString("30000000-0000-0000-0000-000000000001");
+    public static final UUID SUPPLIER_ALIAS_ID = UUID.fromString("30000000-0000-0000-0000-000000000002");
     public static final UUID CATEGORY_ID = UUID.fromString("40000000-0000-0000-0000-000000000001");
     public static final UUID ACCOUNT_ID = UUID.fromString("50000000-0000-0000-0000-000000000001");
     public static final UUID PAYABLE_OPEN_ID = UUID.fromString("60000000-0000-0000-0000-000000000001");
     public static final UUID PAYABLE_PAID_ID = UUID.fromString("60000000-0000-0000-0000-000000000002");
+    public static final UUID PAYABLE_NO_DESC_ID = UUID.fromString("60000000-0000-0000-0000-000000000003");
+    public static final UUID PAYABLE_THROUGH_CP_ID = UUID.fromString("60000000-0000-0000-0000-000000000004");
+    public static final UUID PAYABLE_NO_FA_ID = UUID.fromString("60000000-0000-0000-0000-000000000005");
+    public static final UUID PAYABLE_NULL_DATES_ID = UUID.fromString("60000000-0000-0000-0000-000000000006");
     public static final UUID COUNTERPARTY_ID = UUID.fromString("25000000-0000-0000-0000-000000000001");
+    public static final UUID COUNTERPARTY_ALIAS_ID = SUPPLIER_ALIAS_ID;
     public static final UUID PAYMENT_ID = UUID.fromString("70000000-0000-0000-0000-000000000001");
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -68,6 +75,84 @@ public final class SyntheticBundleFactory {
             .replace("synthetic-user", "synthetic-user-" + suffix));
         return data;
     }
+
+    public static Map<String, List<String>> richData(String suffix) {
+        var data = validData(suffix);
+        var nullDisplayUser = new LinkedHashMap<String, Object>();
+        nullDisplayUser.put("externalId", USER_NULL_DISPLAYNAME_ID);
+        nullDisplayUser.put("username", "no-display-" + suffix);
+        nullDisplayUser.put("email", "no-display-" + suffix + "@example.invalid");
+        nullDisplayUser.put("displayName", null);
+        nullDisplayUser.put("active", true);
+        nullDisplayUser.put("roleCodes", List.of("VIEWER"));
+        data.get(USERS).add(json(nullDisplayUser));
+        var aliasSupplier = new LinkedHashMap<String, Object>();
+        aliasSupplier.put("externalId", SUPPLIER_ALIAS_ID);
+        aliasSupplier.put("name", "Alias Supplier");
+        aliasSupplier.put("document", "ALIAS");
+        aliasSupplier.put("email", "alias@example.invalid");
+        aliasSupplier.put("phone", "0001");
+        aliasSupplier.put("active", true);
+        data.get(SUPPLIERS).add(json(aliasSupplier));
+        var aliasCounterparty = new LinkedHashMap<String, Object>();
+        aliasCounterparty.put("externalId", COUNTERPARTY_ALIAS_ID);
+        aliasCounterparty.put("name", "Alias Counterparty");
+        aliasCounterparty.put("type", "SUPPLIER");
+        aliasCounterparty.put("sourceReference", "3|2");
+        data.get(COUNTERPARTIES).add(json(aliasCounterparty));
+        var noDescPayable = new LinkedHashMap<String, Object>();
+        noDescPayable.put("externalId", PAYABLE_NO_DESC_ID);
+        noDescPayable.put("supplierExternalId", SUPPLIER_ID);
+        noDescPayable.put("categoryExternalId", null);
+        noDescPayable.put("financialAccountExternalId", null);
+        noDescPayable.put("description", null);
+        noDescPayable.put("documentNumber", "SYN-NODESC");
+        noDescPayable.put("issueDate", "2026-03-01");
+        noDescPayable.put("dueDate", "2026-03-31");
+        noDescPayable.put("amount", "75.00");
+        noDescPayable.put("status", "OPEN");
+        data.get(PAYABLES).add(json(noDescPayable));
+        var cpPayable = new LinkedHashMap<String, Object>();
+        cpPayable.put("externalId", PAYABLE_THROUGH_CP_ID);
+        cpPayable.put("supplierExternalId", null);
+        cpPayable.put("counterpartyExternalId", COUNTERPARTY_ALIAS_ID);
+        cpPayable.put("categoryExternalId", CATEGORY_ID);
+        cpPayable.put("financialAccountExternalId", ACCOUNT_ID);
+        cpPayable.put("description", "Through counterparty");
+        cpPayable.put("documentNumber", "SYN-CP");
+        cpPayable.put("issueDate", "2026-04-01");
+        cpPayable.put("dueDate", "2026-04-30");
+        cpPayable.put("amount", "200.00");
+        cpPayable.put("status", "OPEN");
+        data.get(PAYABLES).add(json(cpPayable));
+        var noFaPayable = new LinkedHashMap<String, Object>();
+        noFaPayable.put("externalId", PAYABLE_NO_FA_ID);
+        noFaPayable.put("supplierExternalId", SUPPLIER_ID);
+        noFaPayable.put("categoryExternalId", CATEGORY_ID);
+        noFaPayable.put("financialAccountExternalId", null);
+        noFaPayable.put("description", "No financial account");
+        noFaPayable.put("documentNumber", "SYN-NOFA");
+        noFaPayable.put("issueDate", "2026-05-01");
+        noFaPayable.put("dueDate", "2026-05-31");
+        noFaPayable.put("amount", "150.00");
+        noFaPayable.put("status", "OPEN");
+        data.get(PAYABLES).add(json(noFaPayable));
+        var nullDatesPayable = new LinkedHashMap<String, Object>();
+        nullDatesPayable.put("externalId", PAYABLE_NULL_DATES_ID);
+        nullDatesPayable.put("supplierExternalId", SUPPLIER_ID);
+        nullDatesPayable.put("categoryExternalId", null);
+        nullDatesPayable.put("financialAccountExternalId", null);
+        nullDatesPayable.put("description", "Nullable dates");
+        nullDatesPayable.put("documentNumber", "SYN-NULLDATE");
+        nullDatesPayable.put("issueDate", null);
+        nullDatesPayable.put("dueDate", null);
+        nullDatesPayable.put("amount", "50.00");
+        nullDatesPayable.put("status", "OPEN");
+        data.get(PAYABLES).add(json(nullDatesPayable));
+        return data;
+    }
+
+    public static byte[] richArchive(String suffix) { return zip(entries(richData(suffix), "1.0")); }
 
     public static Map<String, byte[]> entries(Map<String, List<String>> data, String formatVersion) {
         var result = new LinkedHashMap<String, byte[]>();
@@ -121,7 +206,7 @@ public final class SyntheticBundleFactory {
     }
 
     private static ArrayList<String> list(String... values) { return new ArrayList<>(List.of(values)); }
-    private static String json(Object value) {
+    public static String json(Object value) {
         try { return MAPPER.writeValueAsString(value); }
         catch (Exception ex) { throw new IllegalStateException(ex); }
     }

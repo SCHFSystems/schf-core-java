@@ -21,6 +21,7 @@ import br.com.schf.user.UserAccount;
 import br.com.schf.user.UserAccountRepository;
 import br.com.schf.user.UserRole;
 import java.net.http.HttpClient;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -80,6 +81,8 @@ class MigrationImporterIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired RateLimitService rateLimitService;
+    @Autowired br.com.schf.payable.PayableRepository payableRepository;
+    @Autowired br.com.schf.payment.PaymentRepository paymentRepository;
 
     @BeforeEach
     void client() {
@@ -190,6 +193,111 @@ class MigrationImporterIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertThat(response.getBody()).contains("CHECKSUM_MISMATCH").doesNotContain("Synthetic Supplier");
+    }
+
+    @Test
+    void nullDisplayNameFallsBackToUsername() {
+        var organization = organization("NONDISPLAY");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "ndisplay-admin", List.of(Permissions.MIGRATION_IMPORT));
+        var archive = SyntheticBundleFactory.richArchive("ndisplay");
+
+        var response = upload("/api/admin/migrations/import", archive, login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"COMPLETED");
+        var noDisplay = userRepository.findByUsername("no-display-ndisplay");
+        assertThat(noDisplay).isPresent();
+        assertThat(noDisplay.get().getDisplayName()).isEqualTo("no-display-ndisplay");
+    }
+
+    @Test
+    void nullDescriptionPersistsAsNull() {
+        var organization = organization("NONDESC");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "nodesc-admin", List.of(Permissions.MIGRATION_IMPORT));
+
+        var response = upload("/api/admin/migrations/import", SyntheticBundleFactory.richArchive("nodesc"),
+            login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"COMPLETED");
+        var payables = payableRepository.findByOrganizationId(organization.getId());
+        var noDesc = payables.stream()
+            .filter(p -> p.getDocumentNumber() != null && p.getDocumentNumber().equals("SYN-NODESC"))
+            .findFirst();
+        assertThat(noDesc).isPresent();
+        assertThat(noDesc.get().getDescription()).isNull();
+    }
+
+    @Test
+    void payableThroughCounterpartyAliasResolvesSupplier() {
+        var organization = organization("CPALIAS");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "cpalias-admin", List.of(Permissions.MIGRATION_IMPORT));
+
+        var response = upload("/api/admin/migrations/import", SyntheticBundleFactory.richArchive("cpalias"),
+            login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"COMPLETED");
+        var payables = payableRepository.findByOrganizationId(organization.getId());
+        var cpPayable = payables.stream()
+            .filter(p -> p.getDocumentNumber() != null && p.getDocumentNumber().equals("SYN-CP"))
+            .findFirst();
+        assertThat(cpPayable).isPresent();
+        var aliases = supplierRepository.findByOrganizationId(organization.getId()).stream()
+            .filter(s -> "Alias Supplier".equals(s.getName()))
+            .collect(java.util.stream.Collectors.toList());
+        assertThat(aliases).hasSize(1);
+        assertThat(cpPayable.get().getSupplierId()).isEqualTo(aliases.getFirst().getId());
+    }
+
+    @Test
+    void payableWithoutSupplierFailsAtPayablesPhase() {
+        var organization = organization("NOSUPPLIER");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "nosup-admin", List.of(Permissions.MIGRATION_IMPORT));
+        var data = SyntheticBundleFactory.richData("nosup");
+        var badPayable = new LinkedHashMap<String, Object>();
+        badPayable.put("externalId", UUID.fromString("60000000-0000-0000-0000-000000000099"));
+        badPayable.put("supplierExternalId", null);
+        badPayable.put("counterpartyExternalId", null);
+        badPayable.put("categoryExternalId", SyntheticBundleFactory.CATEGORY_ID);
+        badPayable.put("financialAccountExternalId", null);
+        badPayable.put("description", "No supplier at all");
+        badPayable.put("documentNumber", "SYN-NOSUP");
+        badPayable.put("issueDate", "2026-06-01");
+        badPayable.put("dueDate", "2026-06-30");
+        badPayable.put("amount", "99.99");
+        badPayable.put("status", "OPEN");
+        data.get(br.com.schf.migration.domain.BundlePaths.PAYABLES).add(SyntheticBundleFactory.json(badPayable));
+        var archive = SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0"));
+
+        var response = upload("/api/admin/migrations/import", archive, login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"FAILED\"", "\"lastCompletedPhase\":\"FINANCIAL_ACCOUNTS\"");
+    }
+
+    @Test
+    void nullDatesPersistAsNull() {
+        var organization = organization("NULLDATES");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "ndates-admin", List.of(Permissions.MIGRATION_IMPORT));
+
+        var response = upload("/api/admin/migrations/import", SyntheticBundleFactory.richArchive("nulldates"),
+            login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"COMPLETED");
+        var payables = payableRepository.findByOrganizationId(organization.getId());
+        var nullDates = payables.stream()
+            .filter(p -> p.getDocumentNumber() != null && p.getDocumentNumber().equals("SYN-NULLDATE"))
+            .findFirst();
+        assertThat(nullDates).isPresent();
+        assertThat(nullDates.get().getIssueDate()).isNull();
+        assertThat(nullDates.get().getDueDate()).isNull();
     }
 
     @Test
