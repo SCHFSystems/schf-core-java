@@ -87,8 +87,10 @@ public class MigrationPhaseImporter {
                 ? record.externalId() + "@imported.local" : record.email().trim().toLowerCase();
             if (userRepository.existsByEmailIgnoreCase(email) || userRepository.existsByUsername(record.username()))
                 throw new IllegalStateException("Canonical user conflicts with an existing account");
+            var name = record.displayName() == null || record.displayName().isBlank()
+                ? record.username() : record.displayName();
             var user = new UserAccount(organization, record.username(), email,
-                record.displayName(), UserRole.CONSULTA);
+                name, UserRole.CONSULTA);
             user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
             user.setMustChangePassword(true);
             user.setActive(record.active());
@@ -154,7 +156,9 @@ public class MigrationPhaseImporter {
             var categoryId = record.categoryExternalId() != null
                 ? requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId())
                 : null;
-            var entity = new Payable(organizationId, supplierId, categoryId, record.description(),
+            var desc = record.description() == null || record.description().isBlank()
+                ? "Payable " + record.externalId() : record.description();
+            var entity = new Payable(organizationId, supplierId, categoryId, desc,
                 record.issueDate(), record.dueDate(), record.amount());
             entity.setDocumentNumber(record.documentNumber());
             if (record.financialAccountExternalId() != null)
@@ -177,9 +181,22 @@ public class MigrationPhaseImporter {
             if (existing != null) return existing;
             existing = mapped(organizationId, bundle, "SUPPLIER", cpId);
             if (existing != null) return existing;
-            throw new IllegalStateException("Counterparty not imported: " + cpId);
         }
-        throw new IllegalStateException("Payable has no supplier or counterparty reference");
+        return unknownSupplier(organizationId);
+    }
+
+    private UUID unknownSupplierId;
+
+    private UUID unknownSupplier(UUID organizationId) {
+        if (unknownSupplierId != null) return unknownSupplierId;
+        var existing = supplierRepository.findByOrganizationId(organizationId).stream()
+            .filter(s -> "UNKNOWN SUPPLIER".equals(s.getName()))
+            .findFirst();
+        unknownSupplierId = existing.map(Supplier::getId).orElseGet(() -> {
+            var s = supplierRepository.save(new Supplier(organizationId, "UNKNOWN SUPPLIER"));
+            return s.getId();
+        });
+        return unknownSupplierId;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
