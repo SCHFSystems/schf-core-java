@@ -20,6 +20,7 @@ import br.com.schf.migration.validation.CanonicalBundleValidator;
 import br.com.schf.payable.PayableRepository;
 import br.com.schf.payment.PaymentRepository;
 import br.com.schf.security.principal.AuthenticatedUserPrincipal;
+import br.com.schf.security.role.RoleRepository;
 import br.com.schf.shared.TenantContext;
 import br.com.schf.supplier.SupplierRepository;
 import java.util.LinkedHashMap;
@@ -39,6 +40,7 @@ public class MigrationApplicationService {
     private final MigrationExternalIdRepository externalIdRepository;
     private final MigrationPhaseImporter phaseImporter;
     private final MigrationJobStateService stateService;
+    private final RoleRepository roleRepository;
     private final TenantContext tenantContext;
     private final MigrationAuditService auditService;
     private final SupplierRepository supplierRepository;
@@ -55,6 +57,7 @@ public class MigrationApplicationService {
                                        MigrationExternalIdRepository externalIdRepository,
                                        MigrationPhaseImporter phaseImporter,
                                        MigrationJobStateService stateService,
+                                       RoleRepository roleRepository,
                                        TenantContext tenantContext,
                                        MigrationAuditService auditService,
                                        SupplierRepository supplierRepository,
@@ -65,7 +68,8 @@ public class MigrationApplicationService {
         this.validator = validator; this.workspace = workspace; this.jobRepository = jobRepository;
         this.bundleFileRepository = bundleFileRepository; this.errorRepository = errorRepository;
         this.externalIdRepository = externalIdRepository; this.phaseImporter = phaseImporter;
-        this.stateService = stateService; this.tenantContext = tenantContext; this.auditService = auditService;
+        this.stateService = stateService; this.roleRepository = roleRepository;
+        this.tenantContext = tenantContext; this.auditService = auditService;
         this.supplierRepository = supplierRepository; this.categoryRepository = categoryRepository;
         this.accountRepository = accountRepository; this.payableRepository = payableRepository;
         this.paymentRepository = paymentRepository;
@@ -103,7 +107,16 @@ public class MigrationApplicationService {
             var result = phaseImporter.organizations(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped();
             stateService.checkpoint(job.getId(), phase, imported, skipped);
-            phase = "USERS"; result = phaseImporter.users(job.getId(), organizationId, bundle);
+            phase = "USERS";
+            var requiredRoleCodes = bundle.users().stream()
+                .flatMap(u -> u.roleCodes() != null ? u.roleCodes().stream() : java.util.stream.Stream.empty())
+                .collect(java.util.stream.Collectors.toSet());
+            for (String code : requiredRoleCodes) {
+                roleRepository.findByOrganizationIdAndCode(organizationId, code)
+                    .orElseThrow(() -> new IllegalStateException(
+                        "Required canonical role not found in target database: " + code));
+            }
+            result = phaseImporter.users(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);
             phase = "SUPPLIERS"; result = phaseImporter.suppliers(job.getId(), organizationId, bundle);
             imported += result.imported(); skipped += result.skipped(); stateService.checkpoint(job.getId(), phase, imported, skipped);

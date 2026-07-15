@@ -40,6 +40,11 @@ public class SetupService {
         Permissions.USER_READ, Permissions.USER_WRITE, Permissions.ADMIN_ACCESS,
         Permissions.AUDIT_READ, Permissions.MIGRATION_READ, Permissions.MIGRATION_IMPORT);
 
+    private static final List<String> VIEWER_PERMISSIONS = List.of(
+        Permissions.SUPPLIER_READ, Permissions.CATEGORY_READ,
+        Permissions.ACCOUNT_READ, Permissions.PAYABLE_READ,
+        Permissions.REPORT_READ, Permissions.USER_READ);
+
     private final InstanceSetupRepository setupRepository;
     private final OrganizationRepository organizationRepository;
     private final UserAccountRepository userRepository;
@@ -94,6 +99,7 @@ public class SetupService {
 
         var permissions = seedPermissions();
         var ownerRole = seedOwnerRole(organization, permissions);
+        seedViewerRole(organization, permissions);
         seedAdminUser(organization, ownerRole, request);
 
         setupRow.complete(organization.getId());
@@ -120,6 +126,18 @@ public class SetupService {
         var role = roleRepository.findByOrganizationIdAndCode(organization.getId(), RoleCodes.OWNER)
             .orElseGet(() -> roleRepository.save(new Role(organization, RoleCodes.OWNER, "Owner", null)));
         for (String code : ALL_PERMISSIONS) {
+            var permission = permissions.get(code);
+            if (!rolePermissionRepository.existsByRoleIdAndPermissionId(role.getId(), permission.getId())) {
+                rolePermissionRepository.save(new RolePermission(role, permission));
+            }
+        }
+        return role;
+    }
+
+    private Role seedViewerRole(Organization organization, Map<String, Permission> permissions) {
+        var role = roleRepository.findByOrganizationIdAndCode(organization.getId(), RoleCodes.VIEWER)
+            .orElseGet(() -> roleRepository.save(new Role(organization, RoleCodes.VIEWER, "Viewer", null)));
+        for (String code : VIEWER_PERMISSIONS) {
             var permission = permissions.get(code);
             if (!rolePermissionRepository.existsByRoleIdAndPermissionId(role.getId(), permission.getId())) {
                 rolePermissionRepository.save(new RolePermission(role, permission));
