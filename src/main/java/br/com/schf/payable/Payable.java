@@ -27,7 +27,7 @@ public class Payable {
     @Column(name = "supplier_id", nullable = false)
     private UUID supplierId;
 
-    @Column(name = "category_id", nullable = false)
+    @Column(name = "category_id")
     private UUID categoryId;
 
     @Column(name = "financial_account_id")
