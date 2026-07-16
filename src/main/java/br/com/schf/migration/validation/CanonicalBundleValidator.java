@@ -99,11 +99,9 @@ public class CanonicalBundleValidator {
         validateDuplicates("PAYABLE", payables.stream().map(CanonicalPayable::externalId).toList(), dataIssues);
         validateDuplicates("PAYMENT", payments.stream().map(CanonicalPayment::externalId).toList(), dataIssues);
         validateValues(manifest, organizations, users, suppliers, categories, accounts, counterparties, payables, payments, dataIssues);
-        var hasDataIssues = !dataIssues.isEmpty();
         issues.addAll(dataIssues);
 
-        var valid = !hasDataIssues;
-        var report = new BundleValidationReport(valid, content.bundleId(), bundle.totalRecords(),
+        var report = new BundleValidationReport(content.bundleId(), bundle.totalRecords(),
             Map.copyOf(manifest.recordCounts()), List.copyOf(issues));
         return new ValidatedBundle(bundle, report);
     }
@@ -230,28 +228,41 @@ public class CanonicalBundleValidator {
         var payableIds = ids(payables.stream().map(CanonicalPayable::externalId).toList());
         for (CanonicalPayable payable : payables) {
             var counterpartyResolved = payable.counterpartyExternalId() != null
-                && counterpartyIds.contains(payable.counterpartyExternalId());
+                && (counterpartyIds.contains(payable.counterpartyExternalId())
+                    || supplierIds.contains(payable.counterpartyExternalId()));
             var supplierResolved = payable.supplierExternalId() != null
                 && supplierIds.contains(payable.supplierExternalId());
-            if ((!counterpartyResolved && !supplierResolved)
-                || !categoryIds.contains(payable.categoryExternalId())
-                || payable.financialAccountExternalId() != null && !accountIds.contains(payable.financialAccountExternalId())) {
+            if (!counterpartyResolved && !supplierResolved) {
                 issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYABLES, null,
-                    "Payable contains an unresolved canonical reference"));
+                    "Payable has no resolvable supplier or counterparty reference"));
             }
-            if (payable.issueDate() == null || payable.dueDate() == null) {
-                issues.add(issue("INVALID_DATE", BundlePaths.PAYABLES, null, "Payable dates are required"));
+            if (payable.categoryExternalId() != null && !categoryIds.contains(payable.categoryExternalId())) {
+                issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYABLES, null,
+                    "Payable references a non-existent category"));
+            }
+            if (payable.financialAccountExternalId() != null && !accountIds.contains(payable.financialAccountExternalId())) {
+                issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYABLES, null,
+                    "Payable references a non-existent financial account"));
+            }
+            if (payable.issueDate() == null) {
+                issues.add(warning("MISSING_ISSUE_DATE", BundlePaths.PAYABLES, null, "Payable issue date is null"));
+            }
+            if (payable.dueDate() == null) {
+                issues.add(warning("MISSING_DUE_DATE", BundlePaths.PAYABLES, null, "Payable due date is null"));
             }
         }
         var totals = new HashMap<UUID, BigDecimal>();
         for (CanonicalPayment payment : payments) {
-            if (!payableIds.contains(payment.payableExternalId())
-                || !accountIds.contains(payment.financialAccountExternalId())) {
+            if (!payableIds.contains(payment.payableExternalId())) {
                 issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYMENTS, null,
-                    "Payment contains an unresolved canonical reference"));
+                    "Payment references a non-existent payable"));
+            }
+            if (payment.financialAccountExternalId() != null && !accountIds.contains(payment.financialAccountExternalId())) {
+                issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYMENTS, null,
+                    "Payment references a non-existent financial account"));
             }
             if (payment.paymentDate() == null) {
-                issues.add(issue("INVALID_DATE", BundlePaths.PAYMENTS, null, "Payment date is required"));
+                issues.add(warning("MISSING_PAYMENT_DATE", BundlePaths.PAYMENTS, null, "Payment date is null"));
             }
             if (payment.amount() != null)
                 totals.merge(payment.payableExternalId(), payment.amount(), BigDecimal::add);
@@ -259,13 +270,15 @@ public class CanonicalBundleValidator {
         for (CanonicalPayable payable : payables) {
             if (payable.amount() != null && totals.getOrDefault(payable.externalId(), BigDecimal.ZERO)
                 .compareTo(payable.amount()) > 0) {
-                issues.add(issue("PAYMENT_TOTAL_EXCEEDED", BundlePaths.PAYMENTS, null,
+                issues.add(warning("PAYMENT_TOTAL_EXCEEDED", BundlePaths.PAYMENTS, null,
                     "Payment total exceeds the payable amount"));
             }
         }
         users.forEach(user -> {
-            if (blank(user.username()) || blank(user.email()) || blank(user.displayName()))
-                issues.add(issue("INVALID_USER", BundlePaths.USERS, null, "Canonical user fields are required"));
+            if (blank(user.username()) || blank(user.email()))
+                issues.add(issue("INVALID_USER", BundlePaths.USERS, null, "Canonical user username or email is missing"));
+            if (blank(user.displayName()))
+                issues.add(warning("INVALID_USER", BundlePaths.USERS, null, "Canonical user display name is missing"));
         });
     }
 
@@ -288,7 +301,10 @@ public class CanonicalBundleValidator {
 
     private boolean blank(String value) { return value == null || value.isBlank(); }
     private ValidationIssue issue(String code, String file, Long line, String message) {
-        return new ValidationIssue(code, file, line, message);
+        return new ValidationIssue(code, file, line, message, ValidationIssue.ERROR);
+    }
+    private ValidationIssue warning(String code, String file, Long line, String message) {
+        return new ValidationIssue(code, file, line, message, ValidationIssue.WARNING);
     }
     private void failIfAny(List<ValidationIssue> issues) {
         if (!issues.isEmpty()) throw new BundleValidationException(issues);
