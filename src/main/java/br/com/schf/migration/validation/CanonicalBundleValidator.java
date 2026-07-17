@@ -34,8 +34,11 @@ import org.springframework.stereotype.Service;
 public class CanonicalBundleValidator {
     public static final String FORMAT_VERSION = "1.0";
     public static final String FORMAT_VERSION_1_1 = "1.1";
-    public static final Set<String> SUPPORTED_FORMATS = Set.of(FORMAT_VERSION, FORMAT_VERSION_1_1);
+    public static final String FORMAT_VERSION_1_2 = "1.2";
+    public static final Set<String> SUPPORTED_FORMATS = Set.of(FORMAT_VERSION, FORMAT_VERSION_1_1, FORMAT_VERSION_1_2);
     public static final String SCHEMA_VERSION = "1";
+    public static final String RESOLUTION_STATUS_UNRESOLVED = "UNRESOLVED_LEGACY_REFERENCE";
+    public static final Set<String> KNOWN_RESOLUTION_STATUSES = Set.of(RESOLUTION_STATUS_UNRESOLVED);
 
     private final SecureBundleArchiveReader archiveReader;
     private final ObjectMapper mapper;
@@ -215,6 +218,13 @@ public class CanonicalBundleValidator {
         }
         categories.forEach(category -> validateEnum(CategoryType.class, category.type(), "INVALID_CATEGORY_TYPE", issues));
         accounts.forEach(account -> validateEnum(FinancialAccountType.class, account.type(), "INVALID_ACCOUNT_TYPE", issues));
+        counterparties.forEach(cp -> {
+            if (cp.resolutionStatus() != null && !cp.resolutionStatus().isBlank()
+                && !KNOWN_RESOLUTION_STATUSES.contains(cp.resolutionStatus())) {
+                issues.add(warning("UNKNOWN_RESOLUTION_STATUS", BundlePaths.COUNTERPARTIES, null,
+                    "Counterparty resolution status is unrecognized"));
+            }
+        });
         payables.forEach(payable -> {
             validateEnum(PayableStatus.class, payable.status(), "INVALID_PAYABLE_STATUS", issues);
             validateMoney(payable.amount(), "PAYABLE", payable.externalId(), issues);
@@ -223,6 +233,9 @@ public class CanonicalBundleValidator {
 
         var supplierIds = ids(suppliers.stream().map(CanonicalSupplier::externalId).toList());
         var counterpartyIds = ids(counterparties.stream().map(CanonicalCounterparty::externalId).toList());
+        var unresolvedCpIds = ids(counterparties.stream()
+            .filter(cp -> RESOLUTION_STATUS_UNRESOLVED.equals(cp.resolutionStatus()))
+            .map(CanonicalCounterparty::externalId).toList());
         var categoryIds = ids(categories.stream().map(CanonicalCategory::externalId).toList());
         var accountIds = ids(accounts.stream().map(CanonicalFinancialAccount::externalId).toList());
         var payableIds = ids(payables.stream().map(CanonicalPayable::externalId).toList());
@@ -232,7 +245,12 @@ public class CanonicalBundleValidator {
                     || supplierIds.contains(payable.counterpartyExternalId()));
             var supplierResolved = payable.supplierExternalId() != null
                 && supplierIds.contains(payable.supplierExternalId());
-            if (!counterpartyResolved && !supplierResolved) {
+            var isUnresolved = payable.counterpartyExternalId() != null
+                && unresolvedCpIds.contains(payable.counterpartyExternalId());
+            if (isUnresolved) {
+                issues.add(warning("LEGACY_COUNTERPARTY_ORPHAN", BundlePaths.PAYABLES, null,
+                    "Payable references an unresolved legacy counterparty"));
+            } else if (!counterpartyResolved && !supplierResolved) {
                 issues.add(issue("REFERENCE_NOT_FOUND", BundlePaths.PAYABLES, null,
                     "Payable has no resolvable supplier or counterparty reference"));
             }

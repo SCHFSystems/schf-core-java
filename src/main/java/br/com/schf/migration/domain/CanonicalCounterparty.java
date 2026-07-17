@@ -8,6 +8,11 @@ public record CanonicalCounterparty(
     UUID externalId,
     String name,
     String type,
-    String sourceReference
+    String sourceReference,
+    String resolutionStatus,
+    boolean active
 ) {
+    public CanonicalCounterparty(UUID externalId, String name, String type, String sourceReference) {
+        this(externalId, name, type, sourceReference, null, true);
+    }
 }

@@ -33,6 +33,7 @@ public final class SyntheticBundleFactory {
     public static final UUID PAYABLE_NULL_DATES_ID = UUID.fromString("60000000-0000-0000-0000-000000000006");
     public static final UUID COUNTERPARTY_ID = UUID.fromString("25000000-0000-0000-0000-000000000001");
     public static final UUID COUNTERPARTY_ALIAS_ID = SUPPLIER_ALIAS_ID;
+    public static final UUID UNRESOLVED_COUNTERPARTY_ID = UUID.fromString("25000000-0000-0000-0000-000000000002");
     public static final UUID PAYMENT_ID = UUID.fromString("70000000-0000-0000-0000-000000000001");
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());

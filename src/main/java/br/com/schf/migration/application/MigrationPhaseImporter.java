@@ -9,7 +9,9 @@ import br.com.schf.migration.domain.CanonicalBundle;
 import br.com.schf.migration.domain.CanonicalCounterparty;
 import br.com.schf.migration.domain.CanonicalPayable;
 import br.com.schf.migration.domain.MigrationExternalId;
+import br.com.schf.migration.domain.UnresolvedLegacyReference;
 import br.com.schf.migration.infrastructure.MigrationExternalIdRepository;
+import br.com.schf.migration.infrastructure.UnresolvedLegacyReferenceRepository;
 import br.com.schf.organization.OrganizationRepository;
 import br.com.schf.payable.Payable;
 import br.com.schf.payable.PayableRepository;
@@ -44,6 +46,7 @@ public class MigrationPhaseImporter {
     private final PayableRepository payableRepository;
     private final PaymentRepository paymentRepository;
     private final MigrationExternalIdRepository externalIdRepository;
+    private final UnresolvedLegacyReferenceRepository unresolvedReferenceRepository;
     private final PasswordEncoder passwordEncoder;
 
     public MigrationPhaseImporter(OrganizationRepository organizationRepository,
@@ -55,8 +58,9 @@ public class MigrationPhaseImporter {
                                   FinancialAccountRepository accountRepository,
                                   PayableRepository payableRepository,
                                   PaymentRepository paymentRepository,
-                                  MigrationExternalIdRepository externalIdRepository,
-                                  PasswordEncoder passwordEncoder) {
+                                   MigrationExternalIdRepository externalIdRepository,
+                                   UnresolvedLegacyReferenceRepository unresolvedReferenceRepository,
+                                   PasswordEncoder passwordEncoder) {
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
@@ -67,6 +71,7 @@ public class MigrationPhaseImporter {
         this.payableRepository = payableRepository;
         this.paymentRepository = paymentRepository;
         this.externalIdRepository = externalIdRepository;
+        this.unresolvedReferenceRepository = unresolvedReferenceRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -152,7 +157,16 @@ public class MigrationPhaseImporter {
         long imported = 0, skipped = 0;
         for (var record : bundle.payables()) {
             if (mapped(organizationId, bundle, "PAYABLE", record.externalId()) != null) { skipped++; continue; }
-            var supplierId = resolvePayableSupplier(organizationId, bundle, record);
+            UUID supplierId;
+            try {
+                supplierId = resolvePayableSupplier(organizationId, bundle, record);
+            } catch (IllegalStateException ex) {
+                if (ex.getMessage() != null && ex.getMessage().contains("unresolved legacy counterparty")) {
+                    skipped++;
+                    continue;
+                }
+                throw ex;
+            }
             var categoryId = record.categoryExternalId() != null
                 ? requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId())
                 : null;
@@ -178,9 +192,20 @@ public class MigrationPhaseImporter {
         var cpId = payable.counterpartyExternalId();
         if (cpId != null) {
             var existing = mapped(organizationId, bundle, "COUNTERPARTY", cpId);
-            if (existing != null) return existing;
+            if (existing != null) {
+                if (unresolvedReferenceRepository.findByOrganizationIdAndExternalId(organizationId, cpId).isPresent()) {
+                    throw new IllegalStateException(
+                        "Payable references unresolved legacy counterparty: " + cpId);
+                }
+                return existing;
+            }
             existing = mapped(organizationId, bundle, "SUPPLIER", cpId);
             if (existing != null) return existing;
+            if (bundle.counterparties().stream().anyMatch(
+                cp -> cp.externalId().equals(cpId) && "UNRESOLVED_LEGACY_REFERENCE".equals(cp.resolutionStatus()))) {
+                throw new IllegalStateException(
+                    "Payable references unresolved legacy counterparty: " + cpId);
+            }
         }
         throw new IllegalStateException("Payable references no supplier or counterparty");
     }
@@ -194,6 +219,14 @@ public class MigrationPhaseImporter {
             if (existingSupplier != null) {
                 saveMap(jobId, organizationId, bundle, "COUNTERPARTY", record.externalId(), existingSupplier);
                 skipped++;
+                continue;
+            }
+            if (record.resolutionStatus() != null && "UNRESOLVED_LEGACY_REFERENCE".equals(record.resolutionStatus())) {
+                var entity = new UnresolvedLegacyReference(organizationId, record.externalId(), record.name(),
+                    record.type(), record.sourceReference(), jobId);
+                unresolvedReferenceRepository.save(entity);
+                saveMap(jobId, organizationId, bundle, "COUNTERPARTY", record.externalId(), entity.getId());
+                imported++;
                 continue;
             }
             var entity = new Supplier(organizationId, record.name());

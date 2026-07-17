@@ -282,6 +282,60 @@ class CanonicalBundleValidatorTest {
         assertThat(result.report().warnings()).isNotEmpty();
     }
 
+    @Test void format12BundlePasses() {
+        var data = SyntheticBundleFactory.validData();
+        var result = validator.validate(SyntheticBundleFactory.zip(
+            SyntheticBundleFactory.entries(data, "1.2")));
+        assertThat(result.report().valid()).isTrue();
+    }
+
+    @Test void unresolvedCounterpartyProducesWarning() {
+        var data = SyntheticBundleFactory.validData();
+        data.get(COUNTERPARTIES).add(SyntheticBundleFactory.json(Map.of("externalId",
+            SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID, "name", "Unresolved Legacy",
+            "type", "GOVERNMENT", "sourceReference", "7|999",
+            "resolutionStatus", "UNRESOLVED_LEGACY_REFERENCE", "active", false)));
+        var unresolvedPayable = new LinkedHashMap<String, Object>();
+        unresolvedPayable.put("externalId", UUID.randomUUID());
+        unresolvedPayable.put("counterpartyExternalId", SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID);
+        unresolvedPayable.put("categoryExternalId", SyntheticBundleFactory.CATEGORY_ID);
+        unresolvedPayable.put("financialAccountExternalId", SyntheticBundleFactory.ACCOUNT_ID);
+        unresolvedPayable.put("description", "Via unresolved CP");
+        unresolvedPayable.put("documentNumber", "SYN-UNRES");
+        unresolvedPayable.put("issueDate", "2026-06-01");
+        unresolvedPayable.put("dueDate", "2026-06-30");
+        unresolvedPayable.put("amount", "100.00");
+        unresolvedPayable.put("status", "OPEN");
+        data.get(PAYABLES).add(SyntheticBundleFactory.json(unresolvedPayable));
+        var result = validator.validate(SyntheticBundleFactory.zip(
+            SyntheticBundleFactory.entries(data, "1.2")));
+        assertThat(result.report().valid()).isTrue();
+        assertThat(result.report().issues())
+            .anyMatch(i -> i.code().equals("LEGACY_COUNTERPARTY_ORPHAN")
+                && i.severity().equals(ValidationIssue.WARNING));
+    }
+
+    @Test void unresolvedCounterpartyMissingReferenceStillBlocks() {
+        var data = SyntheticBundleFactory.validData();
+        var badRef = new LinkedHashMap<String, Object>();
+        badRef.put("externalId", UUID.randomUUID());
+        badRef.put("counterpartyExternalId", UUID.randomUUID());
+        badRef.put("categoryExternalId", SyntheticBundleFactory.CATEGORY_ID);
+        badRef.put("financialAccountExternalId", SyntheticBundleFactory.ACCOUNT_ID);
+        badRef.put("description", "Missing counterparty");
+        badRef.put("documentNumber", "SYN-MISS");
+        badRef.put("issueDate", "2026-06-01");
+        badRef.put("dueDate", "2026-06-30");
+        badRef.put("amount", "100.00");
+        badRef.put("status", "OPEN");
+        data.get(PAYABLES).add(SyntheticBundleFactory.json(badRef));
+        var result = validator.validate(SyntheticBundleFactory.zip(
+            SyntheticBundleFactory.entries(data, "1.2")));
+        assertThat(result.report().valid()).isFalse();
+        assertThat(result.report().issues())
+            .anyMatch(i -> i.code().equals("REFERENCE_NOT_FOUND"));
+    }
+
     @Test void invalidDateFails() {
         var data = SyntheticBundleFactory.validData();
         data.get(PAYMENTS).set(0, data.get(PAYMENTS).getFirst().replace("2026-02-20", "not-a-date"));
