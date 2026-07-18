@@ -1,9 +1,14 @@
 package br.com.schf.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import br.com.schf.audit.AuditLogRepository;
 import br.com.schf.migration.infrastructure.MigrationExternalIdRepository;
+import br.com.schf.migration.infrastructure.UnresolvedLegacyReferenceRepository;
+import br.com.schf.migration.domain.BundlePaths;
+import br.com.schf.migration.application.MigrationPhaseImporter;
+import br.com.schf.migration.validation.CanonicalBundleValidator;
 import br.com.schf.organization.Organization;
 import br.com.schf.organization.OrganizationRepository;
 import br.com.schf.security.membership.UserRoleAssignment;
@@ -77,12 +82,15 @@ class MigrationImporterIntegrationTest {
     @Autowired UserRoleAssignmentRepository assignmentRepository;
     @Autowired SupplierRepository supplierRepository;
     @Autowired MigrationExternalIdRepository externalIdRepository;
+    @Autowired MigrationPhaseImporter phaseImporter;
+    @Autowired CanonicalBundleValidator bundleValidator;
     @Autowired AuditLogRepository auditLogRepository;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired RateLimitService rateLimitService;
     @Autowired br.com.schf.payable.PayableRepository payableRepository;
     @Autowired br.com.schf.payment.PaymentRepository paymentRepository;
+    @Autowired UnresolvedLegacyReferenceRepository unresolvedReferenceRepository;
 
     @BeforeEach
     void client() {
@@ -251,6 +259,153 @@ class MigrationImporterIntegrationTest {
             .collect(java.util.stream.Collectors.toList());
         assertThat(aliases).hasSize(1);
         assertThat(cpPayable.get().getSupplierId()).isEqualTo(aliases.getFirst().getId());
+    }
+
+    @Test
+    void importPreservesUnresolvedCounterpartyPayablesAndPayments() {
+        var organization = organization("PRESERVE");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "preserve-admin",
+            List.of(Permissions.MIGRATION_IMPORT, Permissions.MIGRATION_READ));
+        var data = SyntheticBundleFactory.validData("preserve");
+        var empId = UUID.fromString("25000000-0000-0000-0000-000000000003");
+        var payable1 = UUID.fromString("60000000-0000-0000-0000-000000000010");
+        var payable2 = UUID.fromString("60000000-0000-0000-0000-000000000011");
+        var payment1 = UUID.fromString("70000000-0000-0000-0000-000000000010");
+        var payment2 = UUID.fromString("70000000-0000-0000-0000-000000000011");
+        data.get(BundlePaths.COUNTERPARTIES).add(SyntheticBundleFactory.json(Map.of(
+            "externalId", SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID,
+            "name", "Unresolved Government", "type", "GOVERNMENT",
+            "sourceReference", "7|999", "resolutionStatus", "UNRESOLVED_LEGACY_REFERENCE", "active", false)));
+        data.get(BundlePaths.COUNTERPARTIES).add(SyntheticBundleFactory.json(Map.of(
+            "externalId", empId, "name", "Unresolved Employee", "type", "EMPLOYEE",
+            "sourceReference", "7|1000", "resolutionStatus", "UNRESOLVED_LEGACY_REFERENCE", "active", false)));
+        for (var entry : List.of(
+            Map.of("externalId", payable1, "cpId", SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID, "doc", "SYN-UNRES1"),
+            Map.of("externalId", payable2, "cpId", empId, "doc", "SYN-UNRES2"))) {
+            data.get(BundlePaths.PAYABLES).add(SyntheticBundleFactory.json(Map.of(
+                "externalId", entry.get("externalId"),
+                "counterpartyExternalId", entry.get("cpId"),
+                "categoryExternalId", SyntheticBundleFactory.CATEGORY_ID,
+                "financialAccountExternalId", SyntheticBundleFactory.ACCOUNT_ID,
+                "description", "Unresolved payable", "documentNumber", entry.get("doc"),
+                "issueDate", "2026-06-01", "dueDate", "2026-06-30", "amount", "100.00", "status", "PAID")));
+        }
+        for (var entry : List.of(
+            Map.of("externalId", payment1, "payableId", payable1),
+            Map.of("externalId", payment2, "payableId", payable2))) {
+            data.get(BundlePaths.PAYMENTS).add(SyntheticBundleFactory.json(Map.of(
+                "externalId", entry.get("externalId"),
+                "payableExternalId", entry.get("payableId"),
+                "financialAccountExternalId", SyntheticBundleFactory.ACCOUNT_ID,
+                "paymentDate", "2026-06-20", "amount", "100.00", "notes", "Payment")));
+        }
+        var archive = SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.2"));
+        var token = login(admin).accessToken();
+
+        var first = upload("/api/admin/migrations/import", archive, token);
+        var firstId = jsonField(first.getBody(), "id");
+        var second = upload("/api/admin/migrations/import", archive, token);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getBody()).contains("\"status\":\"COMPLETED\"");
+        assertThat(second.getBody()).contains("\"id\":\"" + firstId + "\"");
+        assertThat(unresolvedReferenceRepository.countByOrganizationId(organization.getId())).isEqualTo(2);
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "COUNTERPARTY",
+            SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID)).isPresent();
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "COUNTERPARTY", empId)).isPresent();
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "SUPPLIER",
+            SyntheticBundleFactory.UNRESOLVED_COUNTERPARTY_ID)).isEmpty();
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "SUPPLIER", empId)).isEmpty();
+        assertThat(payableRepository.findByOrganizationId(organization.getId())).hasSize(4);
+        assertThat(payableRepository.findByOrganizationId(organization.getId()).stream()
+            .filter(p -> p.getCounterpartyId() != null)).hasSize(2);
+        assertThat(paymentRepository.findByOrganizationId(organization.getId())).hasSize(3);
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "PAYABLE", payable1)).isPresent();
+        assertThat(externalIdRepository.findByOrganizationIdAndSourceSystemAndEntityTypeAndExternalId(
+            organization.getId(), "SYNTHETIC", "PAYMENT", payment1)).isPresent();
+        assertThat(payableRepository.findByOrganizationId(organization.getId())).hasSize(4);
+        assertThat(paymentRepository.findByOrganizationId(organization.getId())).hasSize(3);
+        assertThat(unresolvedReferenceRepository.countByOrganizationId(organization.getId())).isEqualTo(2);
+    }
+
+    @Test
+    void importFailsWhenPayableReferencesNonexistentCounterparty() {
+        var organization = organization("BADCP");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "badcp-admin", List.of(Permissions.MIGRATION_IMPORT));
+        var data = SyntheticBundleFactory.validData("badcp");
+        var badPayable = new LinkedHashMap<String, Object>();
+        badPayable.put("externalId", UUID.fromString("60000000-0000-0000-0000-000000000099"));
+        badPayable.put("supplierExternalId", null);
+        badPayable.put("counterpartyExternalId", UUID.randomUUID());
+        badPayable.put("categoryExternalId", SyntheticBundleFactory.CATEGORY_ID);
+        badPayable.put("financialAccountExternalId", null);
+        badPayable.put("description", "Nonexistent counterparty");
+        badPayable.put("documentNumber", "SYN-BADCP");
+        badPayable.put("issueDate", "2026-06-01");
+        badPayable.put("dueDate", "2026-06-30");
+        badPayable.put("amount", "99.99");
+        badPayable.put("status", "OPEN");
+        data.get(BundlePaths.PAYABLES).add(SyntheticBundleFactory.json(badPayable));
+        var archive = SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0"));
+
+        var response = upload("/api/admin/migrations/import", archive, login(admin).accessToken());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"status\":\"FAILED\"", "\"lastCompletedPhase\":\"FINANCIAL_ACCOUNTS\"");
+        assertThat(payableRepository.findByOrganizationId(organization.getId())).isEmpty();
+    }
+
+    @Test
+    void paymentPhaseRollsBackWhenFinancialAccountMissing() {
+        var organization = organization("ROLLPAY");
+        roleRepository.save(new Role(organization, "VIEWER", "Viewer", null));
+        var admin = user(organization, "rollpay-admin",
+            List.of(Permissions.MIGRATION_IMPORT, Permissions.MIGRATION_READ));
+        var data = SyntheticBundleFactory.validData("rollpay");
+        var cpId = UUID.fromString("25000000-0000-0000-0000-000000000004");
+        var payableId = UUID.fromString("60000000-0000-0000-0000-000000000012");
+        var paymentId = UUID.fromString("70000000-0000-0000-0000-000000000012");
+        data.get(BundlePaths.COUNTERPARTIES).add(SyntheticBundleFactory.json(Map.of(
+            "externalId", cpId, "name", "Rollback Counterparty", "type", "GOVERNMENT",
+            "sourceReference", "7|ROLL", "resolutionStatus", "UNRESOLVED_LEGACY_REFERENCE", "active", false)));
+        data.get(BundlePaths.PAYABLES).add(SyntheticBundleFactory.json(Map.of(
+            "externalId", payableId, "counterpartyExternalId", cpId,
+            "categoryExternalId", SyntheticBundleFactory.CATEGORY_ID,
+            "financialAccountExternalId", SyntheticBundleFactory.ACCOUNT_ID,
+            "description", "Rollback payable", "issueDate", "2026-06-01",
+            "dueDate", "2026-06-30", "amount", "100.00", "status", "OPEN")));
+        data.get(BundlePaths.PAYMENTS).add(SyntheticBundleFactory.json(Map.of(
+            "externalId", paymentId, "payableExternalId", payableId,
+            "financialAccountExternalId", UUID.randomUUID(),
+            "paymentDate", "2026-06-20", "amount", "100.00", "notes", "Will roll back")));
+        var archive = SyntheticBundleFactory.zip(SyntheticBundleFactory.entries(data, "1.0"));
+        var token = login(admin).accessToken();
+
+        var first = upload("/api/admin/migrations/import", archive, token);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getBody()).contains("\"status\":\"FAILED\"", "\"lastCompletedPhase\":\"PAYABLES\"");
+        assertThat(unresolvedReferenceRepository.countByOrganizationId(organization.getId())).isEqualTo(1);
+        assertThat(payableRepository.findByOrganizationId(organization.getId())).hasSize(3);
+        assertThat(paymentRepository.findByOrganizationId(organization.getId())).isEmpty();
+    }
+
+    @Test
+    void paymentWithoutPayableCheckpointStillFails() {
+        var organization = organization("PAYMENT-CHECKPOINT");
+        var bundle = bundleValidator.validate(SyntheticBundleFactory.validArchive("payment-checkpoint")).bundle();
+
+        assertThatThrownBy(() -> phaseImporter.payments(UUID.randomUUID(), organization.getId(), bundle))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Canonical reference checkpoint is unavailable");
+        assertThat(paymentRepository.findByOrganizationId(organization.getId())).isEmpty();
     }
 
     @Test

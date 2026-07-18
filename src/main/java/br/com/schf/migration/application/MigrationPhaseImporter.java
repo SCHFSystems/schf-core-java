@@ -6,7 +6,6 @@ import br.com.schf.account.FinancialAccountType;
 import br.com.schf.category.Category;
 import br.com.schf.category.CategoryRepository;
 import br.com.schf.migration.domain.CanonicalBundle;
-import br.com.schf.migration.domain.CanonicalCounterparty;
 import br.com.schf.migration.domain.CanonicalPayable;
 import br.com.schf.migration.domain.MigrationExternalId;
 import br.com.schf.migration.domain.UnresolvedLegacyReference;
@@ -157,24 +156,18 @@ public class MigrationPhaseImporter {
         long imported = 0, skipped = 0;
         for (var record : bundle.payables()) {
             if (mapped(organizationId, bundle, "PAYABLE", record.externalId()) != null) { skipped++; continue; }
-            UUID supplierId;
-            try {
-                supplierId = resolvePayableSupplier(organizationId, bundle, record);
-            } catch (IllegalStateException ex) {
-                if (ex.getMessage() != null && ex.getMessage().contains("unresolved legacy counterparty")) {
-                    skipped++;
-                    continue;
-                }
-                throw ex;
-            }
+            var resolved = resolvePayableSupplier(organizationId, bundle, record);
             var categoryId = record.categoryExternalId() != null
                 ? requiredMap(organizationId, bundle, "CATEGORY", record.categoryExternalId())
                 : null;
             var desc = record.description() != null && !record.description().isBlank()
                 ? record.description() : null;
-            var entity = new Payable(organizationId, supplierId, categoryId, desc,
+            var entity = new Payable(organizationId, resolved.supplierId(), categoryId, desc,
                 record.issueDate(), record.dueDate(), record.amount());
             entity.setDocumentNumber(record.documentNumber());
+            if (resolved.counterpartyId() != null) {
+                entity.setCounterpartyId(resolved.counterpartyId());
+            }
             if (record.financialAccountExternalId() != null)
                 entity.setFinancialAccountId(requiredMap(organizationId, bundle, "FINANCIAL_ACCOUNT",
                     record.financialAccountExternalId()));
@@ -184,27 +177,27 @@ public class MigrationPhaseImporter {
         return new PhaseResult(imported, skipped);
     }
 
-    private UUID resolvePayableSupplier(UUID organizationId, CanonicalBundle bundle,
-                                         CanonicalPayable payable) {
+    private record ResolvedSupplier(UUID supplierId, UUID counterpartyId) {}
+
+    private ResolvedSupplier resolvePayableSupplier(UUID organizationId, CanonicalBundle bundle,
+                                                     CanonicalPayable payable) {
         if (payable.supplierExternalId() != null) {
-            return requiredMap(organizationId, bundle, "SUPPLIER", payable.supplierExternalId());
+            return new ResolvedSupplier(requiredMap(organizationId, bundle, "SUPPLIER", payable.supplierExternalId()), null);
         }
         var cpId = payable.counterpartyExternalId();
         if (cpId != null) {
             var existing = mapped(organizationId, bundle, "COUNTERPARTY", cpId);
             if (existing != null) {
                 if (unresolvedReferenceRepository.findByOrganizationIdAndExternalId(organizationId, cpId).isPresent()) {
-                    throw new IllegalStateException(
-                        "Payable references unresolved legacy counterparty: " + cpId);
+                    return new ResolvedSupplier(null, existing);
                 }
-                return existing;
+                return new ResolvedSupplier(existing, null);
             }
             existing = mapped(organizationId, bundle, "SUPPLIER", cpId);
-            if (existing != null) return existing;
+            if (existing != null) return new ResolvedSupplier(existing, null);
             if (bundle.counterparties().stream().anyMatch(
                 cp -> cp.externalId().equals(cpId) && "UNRESOLVED_LEGACY_REFERENCE".equals(cp.resolutionStatus()))) {
-                throw new IllegalStateException(
-                    "Payable references unresolved legacy counterparty: " + cpId);
+                throw new IllegalStateException("Canonical reference checkpoint is unavailable");
             }
         }
         throw new IllegalStateException("Payable references no supplier or counterparty");

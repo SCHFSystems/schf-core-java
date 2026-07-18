@@ -24,8 +24,11 @@ public class Payable {
     @Column(name = "organization_id", nullable = false)
     private UUID organizationId;
 
-    @Column(name = "supplier_id", nullable = false)
+    @Column(name = "supplier_id")
     private UUID supplierId;
+
+    @Column(name = "counterparty_id")
+    private UUID counterpartyId;
 
     @Column(name = "category_id")
     private UUID categoryId;
@@ -90,6 +93,8 @@ public class Payable {
     public UUID getId() { return id; }
     public UUID getOrganizationId() { return organizationId; }
     public UUID getSupplierId() { return supplierId; }
+    public UUID getCounterpartyId() { return counterpartyId; }
+    public void setCounterpartyId(UUID counterpartyId) { this.counterpartyId = counterpartyId; }
     public UUID getCategoryId() { return categoryId; }
     public UUID getFinancialAccountId() { return financialAccountId; }
     public void setFinancialAccountId(UUID financialAccountId) { this.financialAccountId = financialAccountId; }
