@@ -1,0 +1,73 @@
+stages:
+  - verify
+  - security
+  - image
+
+verify:
+  stage: verify
+  image: maven:3.9.9-eclipse-temurin-21
+  services:
+    - name: docker:29.0.0-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+    MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  cache:
+    key: maven
+    paths:
+      - .m2/repository/
+  script:
+    - mvn --batch-mode --no-transfer-progress clean verify
+
+security:
+  stage: security
+  image:
+    name: ghcr.io/gitleaks/gitleaks:v8.30.1
+    entrypoint: [""]
+  script:
+    - gitleaks detect --source=. --redact --no-banner
+
+compose-config:
+  stage: security
+  image: docker:29.0.0-cli
+  script:
+    - docker compose config
+
+publish-image:
+  stage: image
+  image: docker:29.0.0-cli
+  services:
+    - name: docker:29.0.0-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  needs:
+    - verify
+    - security
+    - compose-config
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  before_script:
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - export IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker build --pull --label "schf.core.commit=$CI_COMMIT_SHA" --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" --label "org.opencontainers.image.source=$CI_PROJECT_URL" --tag "$IMAGE_TAG" .
+    - export IMAGE_ID="$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')"
+    - docker push "$IMAGE_TAG"
+    - export IMAGE_DIGEST="$(docker buildx imagetools inspect "$IMAGE_TAG" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+    - printf 'IMAGE_TAG=%s\nIMAGE_ID=%s\nIMAGE_DIGEST=%s\nIMAGE_REPO_DIGEST=%s@%s\nSOURCE_COMMIT=%s\n' "$IMAGE_TAG" "$IMAGE_ID" "$IMAGE_DIGEST" "$CI_REGISTRY_IMAGE" "$IMAGE_DIGEST" "$CI_COMMIT_SHA" > image-metadata.env
+  after_script:
+    - docker logout "$CI_REGISTRY"
+  artifacts:
+    reports:
+      dotenv: image-metadata.env
+    paths:
+      - image-metadata.env
+    expire_in: 30 days
