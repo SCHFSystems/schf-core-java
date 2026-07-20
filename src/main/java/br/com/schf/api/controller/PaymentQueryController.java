@@ -1,14 +1,8 @@
-package br.com.schf.payable;
+package br.com.schf.api.controller;
 
-import br.com.schf.api.dto.PayableDetailResponse;
+import br.com.schf.api.dto.PaymentDetailResponse;
 import br.com.schf.api.service.UatReadService;
 import br.com.schf.audit.PageResponse;
-import br.com.schf.payment.PaymentService;
-import br.com.schf.shared.PayableRequest;
-import br.com.schf.shared.PayableResponse;
-import br.com.schf.shared.PaymentRequest;
-import br.com.schf.shared.PaymentResponse;
-import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -17,37 +11,29 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/payables")
-public class PayableController {
+@RequestMapping("/api/payments")
+public class PaymentQueryController {
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final List<String> ALLOWED_SORT_FIELDS = List.of(
-        "issueDate", "dueDate", "amount", "description", "status", "createdAt", "updatedAt");
+        "paymentDate", "amount", "createdAt");
 
-    private final PayableService payableService;
-    private final PaymentService paymentService;
     private final UatReadService uatReadService;
 
-    public PayableController(PayableService payableService, PaymentService paymentService,
-                             UatReadService uatReadService) {
-        this.payableService = payableService;
-        this.paymentService = paymentService;
+    public PaymentQueryController(UatReadService uatReadService) {
         this.uatReadService = uatReadService;
     }
 
     @GetMapping
-    public PageResponse<PayableDetailResponse> getAll(
+    public PageResponse<PaymentDetailResponse> getAll(
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "25") int size,
-        @RequestParam(defaultValue = "issueDate") String sort,
+        @RequestParam(defaultValue = "paymentDate") String sort,
         @RequestParam(defaultValue = "desc") String direction) {
         if (size < 1 || size > MAX_PAGE_SIZE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -59,25 +45,13 @@ public class PayableController {
         }
         var dir = "asc".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
         var pageable = PageRequest.of(page, size, Sort.by(dir, sort));
-        var result = uatReadService.findPayables(pageable);
+        var result = uatReadService.findPayments(pageable);
         return new PageResponse<>(result.getContent(), result.getNumber(), result.getSize(),
             result.getTotalElements(), result.getTotalPages());
     }
 
     @GetMapping("/{id}")
-    public PayableDetailResponse getById(@PathVariable UUID id) {
-        return uatReadService.findPayableById(id);
-    }
-
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public PayableResponse create(@Valid @RequestBody PayableRequest request) {
-        return payableService.create(request);
-    }
-
-    @PostMapping("/{id}/payments")
-    @ResponseStatus(HttpStatus.CREATED)
-    public PaymentResponse pay(@PathVariable UUID id, @Valid @RequestBody PaymentRequest request) {
-        return paymentService.pay(id, request);
+    public PaymentDetailResponse getById(@PathVariable UUID id) {
+        return uatReadService.findPaymentById(id);
     }
 }
